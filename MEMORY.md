@@ -116,17 +116,20 @@ Prisma models corespunzătoare sunt în `prisma/schema.prisma` (model `Operator`
 
 ---
 
-## 5. Operatori & PIN-uri (inițiale — schimbabile în `prisma/seed-operators.ts` + `npm run seed:operators`)
+## 5. Operatori & PIN-uri
 
-| Operator   | slug      | PIN  |
-|------------|-----------|------|
-| Adrian     | adrian    | 1188 |
-| Olga       | olga      | 1919 |
-| Dumitru    | dumitru   | 6767 |
-| Alexandru  | alexandru | 2323 |
-| Ghenadie   | ghenadie  | 8181 |
-| Catalin    | catalin   | 4646 |
-| Gabriela   | gabriela  | 7272 |
+7 operatori: adrian, olga, dumitru, alexandru, ghenadie, catalin, gabriela.
+
+**PIN-urile NU se mai țin în cod** (versiunea veche cu PIN-uri în clar în
+`seed-operators.ts` a fost expusă în repo-ul public → rotite). Acum vin din
+variabila `OPERATOR_PINS` din `.env.local` (gitignored) și din Vercel:
+
+```
+OPERATOR_PINS="adrian:XXXX,olga:XXXX,..."   # 4 cifre fiecare
+```
+
+Schimbare PIN: editează `OPERATOR_PINS` în `.env.local` → `npm run seed:operators`.
+Valorile curente sunt DOAR în `.env.local` (nu în acest fișier — e urmărit de git).
 
 ---
 
