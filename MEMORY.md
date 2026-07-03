@@ -258,7 +258,15 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
 - Fix în 3 locuri (toate acum compară cu `new Date()`, nu cu miezul nopții): `app/api/operator/bookings/route.ts` (GET), `app/api/cron/archive-past/route.ts`, guard-ul de anulare din `.../[id]/route.ts`. `departureDate`/`returnDate` sunt timestamp-uri UTC complete (ex. 08:30 = 05:30Z), deci comparația pe instant e corectă indiferent de fusul serverului Vercel (elimină și un bug latent de fus din `setHours`).
 - Verificat live (era 19:04, curse azi 08:30): cele 2 au ieșit din Active → Arhivă. ✓
 
+**Runda 4 (aceeași zi) — securitate PIN + etichete sursă:**
+- **PIN-uri:** repo `ib-davo/rezervari` a fost pus PUBLIC din greșeală cu PIN-urile în clar → rotite. Acum PIN-urile vin din `OPERATOR_PINS` (`.env.local` + Vercel), seed-ul le citește de acolo, `seed-operators.ts` nu mai are niciun PIN. `.env` NU a fost expus (parola DB + Resend safe). Rămâne: fă repo-ul privat.
+- **Etichete sursă în panou** (cerință user): rezervare de admin din panoul davo → „Rezervare manuală · <nume admin>" (Administrator/Admin 2); operator → „Operator · <nume>"; client de pe site → „Client site". Statutul V/X din emailul clientului se afișează DOAR la `source=site`.
+  - Bug găsit: ruta admin de creare (`app/api/admin/bookings/route.ts`) NU seta `source`/`createdByName` → rezervările de admin apăreau ca „Client site". Fixat în AMBELE proiecte (davo-operatori + `~/testing api/davo-website`): citește sesiunea admin (`verifyToken`→email→`AdminUser.name`), setează `source='admin'` + `createdByName`. `createdById` rămâne null (FK e către Operator, nu AdminUser).
+  - ⚠️ Modificarea din davo e comisă LOCAL în `~/testing api/davo-website` (commit `ebca494`) dar NU e pushed/deployed — trebuie redeploy davo ca rezervările de admin să primească eticheta. Fără redeploy, cele vechi rămân „Client site".
+
 **Rămase pentru producție (acțiuni USER):**
-1. Pune `NEXT_PUBLIC_SUPABASE_ANON_KEY` real (Supabase → Settings → API) → badge „Live" în loc de „15s".
-2. Schimbă PIN-urile din `prisma/seed-operators.ts` + `npm run seed:operators` (cele actuale sunt în repo!).
-3. La deploy: proiect Vercel nou + env din `.env.local` (vezi §7).
+1. **Fă repo-ul `ib-davo/rezervari` PRIVAT** (GitHub → Settings → Danger Zone).
+2. Comunică noile PIN-uri operatorilor; pune `OPERATOR_PINS` și în Vercel.
+3. **Redeploy davo** (`~/testing api/davo-website`, commit `ebca494`) pt. etichetele de admin.
+4. Pune `NEXT_PUBLIC_SUPABASE_ANON_KEY` real → badge „Live" în loc de „15s".
+5. La deploy panou: proiect Vercel + env din `.env.local` (vezi §7), inclusiv `OPERATOR_PINS`.
