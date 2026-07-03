@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
-  AlertTriangle, CalendarDays, Loader2,
+  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 
@@ -33,6 +33,9 @@ export type OperatorBooking = {
   createdByName: string | null;
   createdAt: string;
   archivedAt: string | null;
+  tripId: string | null;
+  returnTripId: string | null;
+  seatBookings: { seatNumber: number; tripId: string }[];
 };
 
 const fmtDate = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "short" });
@@ -391,6 +394,12 @@ function BookingCard({
   const dep = new Date(b.departureDate);
   const ret = b.returnDate ? new Date(b.returnDate) : null;
   const cancelled = b.status === "cancelled";
+  // Locurile, separate dus/retur — clientul întreabă mereu "ce loc am?".
+  const seats = b.seatBookings ?? [];
+  const outboundSeats = seats.filter((s) => s.tripId === b.tripId).map((s) => s.seatNumber);
+  const returnSeats = b.returnTripId
+    ? seats.filter((s) => s.tripId === b.returnTripId).map((s) => s.seatNumber)
+    : [];
 
   const run = async (label: string, patch: Record<string, unknown>) => {
     setBusy(label);
@@ -432,6 +441,12 @@ function BookingCard({
           · {b.type === "parcel" ? <Package className="h-3 w-3" /> : <Users className="h-3 w-3" />}
           {b.type === "parcel" ? "colet" : `${b.adults + b.children}`}
         </span>
+        {outboundSeats.length > 0 && (
+          <span className="inline-flex items-center gap-0.5 font-semibold text-[color:var(--navy-900)]">
+            · <Armchair className="h-3 w-3 text-[color:var(--ink-400)]" /> {outboundSeats.join(", ")}
+            {returnSeats.length > 0 && <span className="font-normal text-[color:var(--ink-500)]"> (retur {returnSeats.join(", ")})</span>}
+          </span>
+        )}
         {cancelled && <span className="font-semibold text-red-600">· anulată</span>}
         {b.passengerResponse === "confirmed" && <span className="text-emerald-600 font-semibold">· ✓ client</span>}
         {b.passengerResponse === "cancelled" && <span className="text-red-600 font-semibold">· ✗ client</span>}
@@ -459,6 +474,25 @@ function BookingCard({
       >
         Acțiuni <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
+      {open && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-[color:var(--ink-500)]">
+          <a
+            href={`/bilet/${b.bookingNumber}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+          >
+            <Ticket className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> Bilet
+          </a>
+          <a
+            href={`mailto:${b.email}`}
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-[color:var(--ink-200)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+          >
+            <Mail className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+            <span className="truncate">{b.email}</span>
+          </a>
+        </div>
+      )}
       {open && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {scope === "active" && b.status !== "confirmed" && (

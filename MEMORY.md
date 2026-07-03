@@ -230,6 +230,24 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
 
 **Git:** proiectul a fost pus sub git (init + commit inițial „baseline funcțional + UI/UX overhaul", branch `main`). `.gitignore` acoperă `.env*`.
 
+**Runda 2 (aceeași zi) — revizie adversarială + cerințe noi:**
+> autobuzele layout ia-le din proiectul davo.
+> si toate functionalitatile din panel care ar avea nevoie operatorii si nu adminii. daca cursa a trecut dispare de la operatori da? sa nu incurce.
+
+- **Layout autobuze**: verificat — SeatPicker/BusSeatMap/TripPicker sunt IDENTICE cu davo (diff curat), iar layout-urile propriu-zise (`Bus.layoutJson`) vin din DB-ul comun. Nimic de portat.
+- **Curse trecute**: DA, dispar automat din Active (query-ul filtrează `departureDate`/`returnDate >= azi`), independent de cron; cron-ul 02:00 doar marchează `archivedAt`.
+- **Funcții noi pt. operatori** (nu admin): locurile pe card (🪑 dus + retur, din `seatBookings` adăugat în GET /api/operator/bookings), buton **Bilet** (deschide /bilet/[nr] în panou, printabil), email-ul clientului ca buton mailto în zona Acțiuni.
+- **Fix-uri din revizia adversarială** (9 găsite, toate rezolvate):
+  1. cancel→re-confirm retrage emailul de anulare încă `queued` (altfel cron-ul davo îl livra deși booking-ul era re-confirmat);
+  2. colete <1 kg taxate ca 1 kg (0.3 kg dădea preț 0 — colet gratis) — UI + server identic;
+  3. revert-ul optimist e per-card, nu snapshot pe toată lista (nu mai șterge update-urile concurente);
+  4. anularea e blocată pentru curse trecute/arhivate (tab vechi nu mai poate anula o cursă care a avut loc) + tranziția în cancelled e atomică (`updateMany where status != cancelled` — un singur request rulează efectele secundare);
+  5. destinatar redevenit opțional (per design — comentariul din PartyForm), doar expeditorul obligatoriu; email expeditor marcat cu `*`;
+  6. `recipient.email` + `sender.address` (Ridicare:) incluse în parcelDetails (se pierdeau);
+  7. `parcelWeight` stocat numeric coerent cu prețul;
+  8. a doua anulare (după re-confirmare) trimite din nou email (dedup doar pe `queued`, nu pe `sent`);
+  9. fallback-ul de dată la colete fără cursă folosește data locală, nu UTC (la 01:00 dădea ziua de ieri).
+
 **Rămase pentru producție (acțiuni USER):**
 1. Pune `NEXT_PUBLIC_SUPABASE_ANON_KEY` real (Supabase → Settings → API) → badge „Live" în loc de „15s".
 2. Schimbă PIN-urile din `prisma/seed-operators.ts` + `npm run seed:operators` (cele actuale sunt în repo!).

@@ -30,6 +30,10 @@ const SELECT = {
   createdByName: true,
   createdAt: true,
   archivedAt: true,
+  // Locurile — operatorul trebuie să le poată spune clientului la telefon.
+  tripId: true,
+  returnTripId: true,
+  seatBookings: { select: { seatNumber: true, tripId: true }, orderBy: { seatNumber: "asc" as const } },
 } as const;
 
 function startOfToday(): Date {
