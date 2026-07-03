@@ -114,8 +114,10 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   }, [load, scheduleReload]);
 
   const act = useCallback(async (id: string, patch: Record<string, unknown>): Promise<boolean> => {
-    // Optimist: aplicăm local instant, revenim dacă serverul răspunde cu eroare.
-    const prev = bookings;
+    // Optimist: aplicăm local instant; la eșec revenim DOAR cardul afectat
+    // (un snapshot pe toată lista ar șterge update-urile concurente reușite
+    // de pe alte carduri sau venite prin realtime între timp).
+    const original = bookings.find((b) => b.id === id);
     setBookings((cur) =>
       cur.map((b) => {
         if (b.id !== id) return b;
@@ -137,7 +139,9 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       load();
       return true;
     } catch {
-      setBookings(prev);
+      if (original) {
+        setBookings((cur) => cur.map((b) => (b.id === id ? original : b)));
+      }
       return false;
     }
   }, [bookings, load]);

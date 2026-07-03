@@ -38,7 +38,8 @@ const CHILD_DISCOUNT = 0.5;
 const PARCEL_PER_KG = 1.5;
 
 export function calculateParcelPrice(weight: number | null | undefined, currency: string): PriceResult {
-  const w = weight && weight > 0 ? weight : 1;
+  // Sub 1 kg se taxează ca 1 kg — altfel round(0.3 × 1.5) = 0 → colet gratis.
+  const w = weight && weight > 0 ? Math.max(1, weight) : 1;
   return { price: Math.round(w * PARCEL_PER_KG), currency };
 }
 

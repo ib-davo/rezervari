@@ -108,10 +108,14 @@ export async function cancelForBooking(bookingId: string, sendCancellationEmail 
   });
 
   if (sendCancellationEmail) {
-    const alreadySent = await prisma.emailJob.findFirst({
-      where: { bookingId, type: "cancellation", status: { in: ["sent", "queued"] } },
+    // Deduplicăm doar pe job-urile ÎN AȘTEPTARE. Un job "sent" istoric nu
+    // trebuie să suprime emailul unei a doua anulări (cancel → re-confirm →
+    // cancel din nou); dublurile în cadrul aceleiași anulări sunt oprite de
+    // guard-urile de tranziție ale apelanților (status != cancelled).
+    const alreadyPending = await prisma.emailJob.findFirst({
+      where: { bookingId, type: "cancellation", status: "queued" },
     });
-    if (!alreadySent) {
+    if (!alreadyPending) {
       await prisma.emailJob.create({
         data: {
           bookingId,

@@ -177,10 +177,10 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
 ## 10. TODO / idei de continuare (neimplementate)
 
 - (Opțional) Editare completă rezervare din panou (acum doar status/plată/arhivă).
-- (Opțional) Filtre pe dashboard (după operator, dată, rută), badge „azi/mâine".
+- ~~(Opțional) Filtre pe dashboard (după operator, dată, rută), badge „azi/mâine".~~ ✅ FĂCUT 3 iul 2026 (§12) — chip-uri filtre + grupare pe zile.
 - (Opțional) Rol `supervisor` care vede statistici / poate șterge.
-- (Opțional) Colet: formularul suportă modul colet; verifică fluxul end-to-end în panou.
-- Confirmă vizual că Realtime „Live" apare după ce se pune anon key-ul.
+- ~~(Opțional) Colet: formularul suportă modul colet; verifică fluxul end-to-end în panou.~~ ✅ VERIFICAT + 3 buguri de colet reparate (§12).
+- Confirmă vizual că Realtime „Live" apare după ce se pune anon key-ul. (`NEXT_PUBLIC_SUPABASE_ANON_KEY` e ÎNCĂ placeholder — 3 iul 2026.)
 - Schimbă PIN-urile reale înainte de producție.
 
 ---
@@ -192,3 +192,45 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
 - Adaugă mereu câmpurile noi și în schema davo (`~/testing api/davo-website/prisma/schema.prisma`).
 - **NU** reintroduce cron-urile davo (`send-reminders`, `generate-trips`) aici — dublează emailuri/curse.
 - Emailuri de test → șterge rezervările după (caută după email de test și șterge `SeatBooking`/`EmailJob`/`EmailLog`/`Booking`).
+
+---
+
+## 12. Sesiunea 3 iulie 2026 — verificare completă + bugfixuri + UI/UX overhaul
+
+**Prompturile utilizatorului (verbatim):**
+> cum stam? ce e cu aplicatia? cum merge? trebuie sa o imbunatatesti complet UI/UX si verifica fiecare functionalitate in parte
+
+> ai si memory.md
+
+> memory.md ai verificat? mai cauta, mai fa ceva. sa fie gata asta azi de utilizat
+
+**Buguri reparate (funcționale):**
+1. **Anularea din panou nu elibera locurile** — `PATCH /api/operator/bookings/[id]` seta doar `status='cancelled'`; acum șterge `SeatBooking`-urile + `cancelForBooking` (anulează EmailJob-urile programate + pune în coadă emailul de anulare, trimis de cron-ul davo). Re-confirmarea după anulare re-programează reminder-ul 24h.
+2. **Preț colet greșit** — coletele cu `tripId` erau taxate cu tariful întreg de pasager (`calculatePriceFromRoute(seats=0→1)`), nu cu 1.5/kg cum arăta UI-ul. Acum `calculateParcelPrice` (lib/pricing.ts) = `round(max(kg,1) × 1.5)` în valuta rutei; formularul trimite `parcelWeight` (înainte NU-l trimitea deloc).
+3. **Destinatarul coletului se pierdea** — nume/telefon/adresă destinatar colectate în formular dar netrimise; acum intră în `parcelDetails`.
+4. **Mass-assignment** — `PATCH /api/bookings/[bookingNumber]` accepta orice câmp raw; acum whitelist: doar firstName/lastName/email/phone/parcelDetails (string-uri).
+5. **„TOTAL 100€" fals** în sumar înainte de orice selecție (fallback DEFAULT_BASE) — acum „alege destinația"/„se calculează după greutate" până există selecție reală.
+6. **Rate-limit pe login PIN** (nou: `lib/loginRateLimit.ts`) — 5 încercări greșite / operator+IP → blocare 15 min (429). In-memory, per instanță. Testat live.
+7. Dependența accidentală `claude` scoasă din package.json. Validare pași colet în `canContinue` (expeditor/destinatar/greutate obligatorii).
+
+**UI/UX (BookingsView rescris complet):**
+- Chip-uri filtre rapide cu contoare: Toate / Pleacă azi / În așteptare / Neachitate / Colete (în arhivă: Toate/Colete).
+- **Grupare pe ziua plecării** cu headere („Astăzi · vin., 3 iulie" cu roșu, „Mâine · …"), nr. de rezervări per zi.
+- Skeleton loading (6 carduri pulse), stare de eroare cu buton retry, empty state cu reset filtre.
+- **Anulare în 2 pași**: „Se eliberează locurile — sigur? [Da, anulează][Nu]" — nu mai anulezi accidental.
+- Update optimist (revert la eșec), spinner per acțiune, search cu buton clear.
+- Mobil: telefoanele nu se mai trunchiază (flex-wrap), status „anulată" vizibil pe card.
+- Formular embedded (operator): fără „Ajutor rapid" (era telefonul firmei), texte adaptate („Clientul a fost informat și acceptă…", „Confirmarea ajunge pe emailul clientului"), `<a>`→`<Link>` la /panou și /rezervare.
+
+**Verificat e2e (read-only, FĂRĂ rezervări de test pe DB-ul live):**
+- Login PIN prin UI real (Playwright + Chrome), toate paginile 200, fără erori JS.
+- Flux rezervare până la pasul Pasageri: Anglia/London → calendar (curse joia, 07:00, 120£) → hartă 54 locuri → selecție loc → Continuă activ. Atenție: calendarul poate dura >10s la prima încărcare (generare lazy curse 16 săpt.).
+- Filtre: 28→3 pe Colete; căutare + clear OK. `npm run build` TRECE. `tsc --noEmit` curat.
+- Lint: rămân 4 erori pre-existente `set-state-in-effect` în BookingForm/BookingsView (pattern vechi, nu blochează build-ul — Next 16 nu mai rulează lint la build).
+
+**Git:** proiectul a fost pus sub git (init + commit inițial „baseline funcțional + UI/UX overhaul", branch `main`). `.gitignore` acoperă `.env*`.
+
+**Rămase pentru producție (acțiuni USER):**
+1. Pune `NEXT_PUBLIC_SUPABASE_ANON_KEY` real (Supabase → Settings → API) → badge „Live" în loc de „15s".
+2. Schimbă PIN-urile din `prisma/seed-operators.ts` + `npm run seed:operators` (cele actuale sunt în repo!).
+3. La deploy: proiect Vercel nou + env din `.env.local` (vezi §7).

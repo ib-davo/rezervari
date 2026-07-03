@@ -301,10 +301,11 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const total = useMemo(() => {
     if (mode === "colet") {
       // Tarif fix: 1.5 EUR/kg pe toate rutele non-UK, 1.5 GBP/kg pe Anglia.
-      // Valuta o stabilim din `currency` (£ pentru UK, € altfel) — nu mai
-      // depinde de un preț de bază sau de un minim.
+      // Valuta o stabilim din `currency` (£ pentru UK, € altfel). Sub 1 kg se
+      // taxează ca 1 kg (aceeași formulă ca serverul — afișat = taxat).
       const w = parseFloat(parcel.weight) || 0;
-      return Math.round(w * 1.5);
+      const billable = w > 0 ? Math.max(1, w) : 0;
+      return Math.round(billable * 1.5);
     }
     const pax = Math.max(1, outboundSeats.length || 1);
     const multi = trip === "return" ? 1.8 : 1;
@@ -385,11 +386,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
 
   const canContinue = (() => {
     if (mode !== "bilet") {
-      // Colet: fără date minime nu are sens să avansezi — serverul oricum
-      // respinge (email/telefon lipsă), iar fără greutate prețul afișat e 0.
+      // Colet: fără datele minime nu are sens să avansezi — serverul oricum
+      // respinge (nume/telefon/email expeditor lipsă), iar fără greutate prețul
+      // afișat e 0. Destinatarul rămâne opțional prin design (se coordonează
+      // telefonic — vezi comentariul din PartyForm).
       if (step === 0) return !!from.trim() && !!to.trim();
       if (step === 1) return !!sender.name.trim() && !!sender.phone.trim() && !!sender.email.trim();
-      if (step === 2) return !!recipient.name.trim() && !!recipient.phone.trim();
       if (step === 3) return (parseFloat(parcel.weight) || 0) > 0;
       return true;
     }
@@ -453,8 +455,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               arrivalCity: toCityName || recipient.city,
               // Data + ora coletului = plecarea cursei pe care a ales-o.
               // Cădere pe data dintr-un input liber doar dacă userul (rare!)
-              // n-a putut alege o cursă (rută fără program activ).
-              departureDate: outboundTripInfo?.departureAt || date || new Date().toISOString().slice(0, 10),
+              // n-a putut alege o cursă (rută fără program activ). Data locală,
+              // nu UTC — la 01:00 noaptea toISOString() ar da ziua de IERI.
+              departureDate: outboundTripInfo?.departureAt || date || new Date().toLocaleDateString("sv-SE"),
               tripId: outboundTripId || undefined,
               firstName: sender.name.split(" ")[0] || sender.name,
               lastName: sender.name.split(" ").slice(1).join(" ") || "—",
@@ -463,12 +466,21 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               adults: 0,
               children: 0,
               parcelWeight: parseFloat(parcel.weight) || undefined,
-              // Destinatarul intră în parcelDetails — altfel datele lui se pierd
-              // complet (schema Booking nu are câmpuri separate de destinatar).
+              // Adresa de ridicare + destinatarul intră în parcelDetails —
+              // altfel se pierd complet (schema Booking nu are câmpuri separate).
               parcelDetails: [
                 `Greutate: ${parcel.weight}kg · ${parcel.length}×${parcel.width}×${parcel.height} · ${parcel.contents}`,
-                `Destinatar: ${recipient.name}, ${recipient.phone}${recipient.city ? `, ${recipient.city}` : ""}${recipient.address ? `, ${recipient.address}` : ""}`,
-              ].join(" | "),
+                sender.address.trim() ? `Ridicare: ${sender.address.trim()}` : null,
+                [recipient.name, recipient.phone, recipient.email, recipient.city, recipient.address]
+                  .some((v) => v.trim())
+                  ? `Destinatar: ${[recipient.name, recipient.phone, recipient.email, recipient.city, recipient.address]
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                      .join(", ")}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" | "),
               payMethod,
             };
       const res = await fetch("/api/bookings", {
@@ -1089,8 +1101,11 @@ function PartyForm({
             className="simple-input"
           />
         </SimpleField>
-        <SimpleField label="Email" icon={<Mail className="h-4 w-4" />}>
+        {/* Emailul expeditorului e obligatoriu — acolo pleacă confirmarea
+            rezervării (serverul respinge fără el). */}
+        <SimpleField label={isSender ? "Email *" : "Email"} icon={<Mail className="h-4 w-4" />}>
           <input
+            required={isSender}
             type="email"
             value={data.email}
             onChange={(e) => setField("email", e.target.value)}

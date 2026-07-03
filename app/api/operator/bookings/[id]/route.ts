@@ -5,6 +5,12 @@ import { cancelForBooking, enqueueRemindersOnly } from "@/lib/emailQueue";
 
 export const dynamic = "force-dynamic";
 
+function startOfToday(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 // Operatorul poate confirma / anula manual + marca plata. Statutul se vede instant
 // și pe davo (aceeași tabelă Booking). passengerResponse rămâne sursa din email.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -27,23 +33,60 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.archive === true) data.archivedAt = new Date();
   if (body.archive === false) data.archivedAt = null;
 
-  const existing = await prisma.booking.findUnique({ where: { id }, select: { id: true, status: true } });
+  const existing = await prisma.booking.findUnique({
+    where: { id },
+    select: { id: true, status: true, departureDate: true, returnDate: true, archivedAt: true },
+  });
   if (!existing) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
 
-  const booking = await prisma.booking.update({ where: { id }, data, select: { id: true, status: true, paymentStatus: true, archivedAt: true } });
+  // O cursă care a avut loc nu se mai anulează — ar elibera locuri degeaba și
+  // ar trimite clientului email de anulare pentru o călătorie trecută (ex. un
+  // tab vechi rămas deschis pe Active). Aceeași convenție de „trecut" ca în GET.
+  if (data.status === "cancelled") {
+    const last = existing.returnDate ?? existing.departureDate;
+    if (existing.archivedAt || new Date(last) < startOfToday()) {
+      return NextResponse.json(
+        { success: false, error: "Cursa a avut loc — rezervarea nu mai poate fi anulată." },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Anulare: tranziție atomică (doar UN request câștigă trecerea în cancelled),
+  // ca două tab-uri/operatori concurenți să nu ruleze efectele secundare de 2 ori.
+  let cancelledNow = false;
+  if (data.status === "cancelled") {
+    const r = await prisma.booking.updateMany({
+      where: { id, status: { not: "cancelled" } },
+      data,
+    });
+    cancelledNow = r.count > 0;
+  } else {
+    await prisma.booking.update({ where: { id }, data });
+  }
 
   // Aceleași efecte secundare ca anularea din email (vezi /api/bookings/respond):
   // altfel locurile rămân ocupate pe cursă și reminder-ele pleacă degeaba.
-  if (data.status === "cancelled" && existing.status !== "cancelled") {
-    await prisma.seatBooking.deleteMany({ where: { bookingId: booking.id } });
+  if (cancelledNow) {
+    await prisma.seatBooking.deleteMany({ where: { bookingId: id } });
     // Oprește job-urile programate + pune în coadă emailul de anulare către client.
-    await cancelForBooking(booking.id, true).catch((e) => console.error("cancelForBooking:", e));
-  }
-  // Re-confirmare după o anulare: re-programează reminder-ul 24h (cel vechi a
-  // fost marcat cancelled). Locurile NU se realocă automat — se aleg din davo.
-  if (data.status === "confirmed" && existing.status === "cancelled") {
-    await enqueueRemindersOnly(booking.id).catch((e) => console.error("enqueueReminders:", e));
+    await cancelForBooking(id, true).catch((e) => console.error("cancelForBooking:", e));
   }
 
+  // Anulare din greșeală + re-confirmare imediată: retrage emailul de anulare
+  // încă netrimis (altfel cron-ul davo îl livrează deși booking-ul e confirmat)
+  // și repune reminder-ul 24h. Locurile NU se realocă automat — se aleg din davo.
+  if (data.status === "confirmed" && existing.status === "cancelled") {
+    await prisma.emailJob.updateMany({
+      where: { bookingId: id, type: "cancellation", status: "queued", sentAt: null },
+      data: { status: "cancelled" },
+    });
+    await enqueueRemindersOnly(id).catch((e) => console.error("enqueueReminders:", e));
+  }
+
+  const booking = await prisma.booking.findUnique({
+    where: { id },
+    select: { id: true, status: true, paymentStatus: true, archivedAt: true },
+  });
   return NextResponse.json({ success: true, booking });
 }
