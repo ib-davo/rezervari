@@ -84,6 +84,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [step, setStep] = useState(0);
   const initialFrom = params.get("from") || "Chișinău, Moldova";
   const initialTo = params.get("to") || "";
+  // "+ Rezervare pe cursă" din panou → preselectăm cursa asta (sar la locuri).
+  const initialTripId = params.get("tripId");
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   // Direcția determină ce listă apare la "Plecare din" vs "Destinația".
@@ -556,6 +558,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               maxSeats={passengers}
                               selectedTripId={outboundTripId}
                               selectedSeats={outboundSeats}
+                              autoSelectTripId={initialTripId}
                               onSelect={(tripId, seats, tripInfo) => {
                                 setOutboundTripId(tripId);
                                 setOutboundSeats(seats);

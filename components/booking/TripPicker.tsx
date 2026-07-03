@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -87,6 +87,7 @@ export function TripPicker({
   onSelect,
   allowedWeekday,
   parcelMode = false,
+  autoSelectTripId = null,
 }: {
   title: string;
   subtitle?: string;
@@ -106,6 +107,9 @@ export function TripPicker({
    *  de curse dar nu rezervă scaune. Cu `parcelMode`, ascundem SeatPicker-ul
    *  și nu mai cerem `maxSeats` să fie sincronizat cu nimic. */
   parcelMode?: boolean;
+  /** Preselectează automat cursa cu acest id când lista s-a încărcat (folosit
+   *  de butonul "+ Rezervare pe cursă" din panoul operatorilor). */
+  autoSelectTripId?: string | null;
 }) {
   const hasRoute = Boolean(originCityId && destCityId);
   const [trips, setTrips] = useState<PublicTrip[] | null>(null);
@@ -229,6 +233,22 @@ export function TripPicker({
       onSelect(trip.id, [], trip);
     }
   };
+
+  // Auto-select (buton "+ Rezervare pe cursă"): odată ce lista de curse s-a
+  // încărcat, selectăm cursa cerută prin `pickTrip` (trece PublicTrip complet →
+  // preț + dată corecte, spre deosebire de setarea directă a tripId-ului). Căutăm
+  // în lista NEfiltrată ca filtrul de zi să nu ascundă cursa țintă. O singură dată.
+  const autoSelectDone = useRef(false);
+  useEffect(() => {
+    if (autoSelectDone.current || !autoSelectTripId || selectedTripId) return;
+    const t = (trips ?? []).find((x) => x.id === autoSelectTripId);
+    if (t) {
+      autoSelectDone.current = true;
+      onSelect(t.id, [], t);
+    }
+    // onSelect e stabil funcțional; nu-l punem în deps ca să nu re-rulăm.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSelectTripId, trips, selectedTripId]);
 
   const updateSeats = (seats: number[]) => {
     if (selectedTripId) onSelect(selectedTripId, seats);
