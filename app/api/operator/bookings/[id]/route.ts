@@ -5,12 +5,6 @@ import { cancelForBooking, enqueueRemindersOnly } from "@/lib/emailQueue";
 
 export const dynamic = "force-dynamic";
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 // Operatorul poate confirma / anula manual + marca plata. Statutul se vede instant
 // și pe davo (aceeași tabelă Booking). passengerResponse rămâne sursa din email.
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -39,14 +33,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   });
   if (!existing) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
 
-  // O cursă care a avut loc nu se mai anulează — ar elibera locuri degeaba și
-  // ar trimite clientului email de anulare pentru o călătorie trecută (ex. un
-  // tab vechi rămas deschis pe Active). Aceeași convenție de „trecut" ca în GET.
+  // O cursă care a plecat deja nu se mai anulează — ar elibera locuri degeaba
+  // și ar trimite clientului email de anulare pentru o călătorie trecută (ex.
+  // un tab vechi rămas deschis pe Active). Aceeași convenție de „trecut" ca în
+  // GET: comparăm cu ORA reală de plecare (retur dacă există), nu cu ziua.
   if (data.status === "cancelled") {
     const last = existing.returnDate ?? existing.departureDate;
-    if (existing.archivedAt || new Date(last) < startOfToday()) {
+    if (existing.archivedAt || new Date(last) < new Date()) {
       return NextResponse.json(
-        { success: false, error: "Cursa a avut loc — rezervarea nu mai poate fi anulată." },
+        { success: false, error: "Cursa a plecat deja — rezervarea nu mai poate fi anulată." },
         { status: 400 }
       );
     }

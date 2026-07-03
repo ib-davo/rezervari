@@ -248,6 +248,13 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
   8. a doua anulare (după re-confirmare) trimite din nou email (dedup doar pe `queued`, nu pe `sent`);
   9. fallback-ul de dată la colete fără cursă folosește data locală, nu UTC (la 01:00 dădea ziua de ieri).
 
+**Runda 3 (aceeași zi) — arhivare pe ORA reală de plecare:**
+> calculeaza, daca acolo scrie pornirea 08:30 si deja e 19:00 aceiasi zi, sa plece cursa
+
+- Bug: filtrarea active/arhivă compara doar DATA (`startOfToday()`), deci o cursă de azi 08:30 rămânea în Active toată ziua, până la miezul nopții.
+- Fix în 3 locuri (toate acum compară cu `new Date()`, nu cu miezul nopții): `app/api/operator/bookings/route.ts` (GET), `app/api/cron/archive-past/route.ts`, guard-ul de anulare din `.../[id]/route.ts`. `departureDate`/`returnDate` sunt timestamp-uri UTC complete (ex. 08:30 = 05:30Z), deci comparația pe instant e corectă indiferent de fusul serverului Vercel (elimină și un bug latent de fus din `setHours`).
+- Verificat live (era 19:04, curse azi 08:30): cele 2 au ieșit din Active → Arhivă. ✓
+
 **Rămase pentru producție (acțiuni USER):**
 1. Pune `NEXT_PUBLIC_SUPABASE_ANON_KEY` real (Supabase → Settings → API) → badge „Live" în loc de „15s".
 2. Schimbă PIN-urile din `prisma/seed-operators.ts` + `npm run seed:operators` (cele actuale sunt în repo!).

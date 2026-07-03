@@ -36,34 +36,33 @@ const SELECT = {
   seatBookings: { select: { seatNumber: true, tripId: true }, orderBy: { seatNumber: "asc" as const } },
 } as const;
 
-function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
 export async function GET(req: NextRequest) {
   const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
   const scope = new URL(req.url).searchParams.get("scope") === "archived" ? "archived" : "active";
-  const start = startOfToday();
 
-  // O cursă "a avut loc" când a trecut ultima dată relevantă (retur dacă există, altfel plecarea).
+  // O cursă "a avut loc" când i-a trecut ORA reală de plecare (retur dacă
+  // există, altfel dus) — NU la miezul nopții. `departureDate`/`returnDate`
+  // sunt timestamp-uri complete (ex. 08:30), deci comparăm cu momentul curent:
+  // o cursă de azi 08:30 dispare din Active după ora 08:30, nu abia mâine.
+  // Comparație pe instant absolut → corectă indiferent de fusul serverului.
+  const now = new Date();
+
   const where =
     scope === "active"
       ? {
           archivedAt: null,
           OR: [
-            { returnDate: { gte: start } },
-            { returnDate: null, departureDate: { gte: start } },
+            { returnDate: { gte: now } },
+            { returnDate: null, departureDate: { gte: now } },
           ],
         }
       : {
           OR: [
             { archivedAt: { not: null } },
-            { returnDate: null, departureDate: { lt: start } },
-            { returnDate: { not: null, lt: start } },
+            { returnDate: null, departureDate: { lt: now } },
+            { returnDate: { not: null, lt: now } },
           ],
         };
 
