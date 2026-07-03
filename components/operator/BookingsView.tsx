@@ -376,9 +376,19 @@ function statusLabel(status: string) {
   return status === "confirmed" ? "Confirmată" : status === "cancelled" ? "Anulată" : "În așteptare";
 }
 function sourceLabel(b: OperatorBooking) {
-  if (b.source === "operator") return b.createdByName || "Operator";
-  if (b.source === "admin") return "Admin";
-  return "Client (site)";
+  // admin/admin2 din panoul davo → rezervare manuală (cu numele adminului);
+  // operator → numele operatorului de pe acest panou; altfel = client de pe site.
+  if (b.source === "admin") return `Rezervare manuală · ${b.createdByName || "Admin"}`;
+  if (b.source === "operator") return `Operator · ${b.createdByName || "?"}`;
+  return "Client site";
+}
+
+// Culoare distinctă pentru sursă: manual (admin) = ambru, operator = navy,
+// client site = neutru. Ajută operatorul să distingă rapid din privire.
+function sourceClass(source: string) {
+  if (source === "admin") return "text-amber-700";
+  if (source === "operator") return "text-[color:var(--navy-700)]";
+  return "text-[color:var(--ink-500)]";
 }
 
 function BookingCard({
@@ -418,7 +428,7 @@ function BookingCard({
           <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(b.status)}`} title={statusLabel(b.status)} />
           <span className="font-mono text-[11px] font-bold text-[color:var(--navy-900)] truncate">{b.bookingNumber}</span>
           <span className="text-[11px] text-[color:var(--ink-400)]">·</span>
-          <span className="text-[11px] font-semibold text-[color:var(--ink-500)] truncate">{sourceLabel(b)}</span>
+          <span className={`text-[11px] font-semibold truncate ${sourceClass(b.source)}`}>{sourceLabel(b)}</span>
         </div>
         <div className="text-right shrink-0">
           <div className="text-sm font-extrabold leading-none text-[color:var(--navy-900)]">{b.price}{curr(b.currency)}</div>
@@ -448,8 +458,10 @@ function BookingCard({
           </span>
         )}
         {cancelled && <span className="font-semibold text-red-600">· anulată</span>}
-        {b.passengerResponse === "confirmed" && <span className="text-emerald-600 font-semibold">· ✓ client</span>}
-        {b.passengerResponse === "cancelled" && <span className="text-red-600 font-semibold">· ✗ client</span>}
+        {/* Statutul din emailul clientului (V/X) are sens DOAR la rezervările
+            făcute de client pe site — la cele manuale (admin/operator) nu. */}
+        {b.source === "site" && b.passengerResponse === "confirmed" && <span className="text-emerald-600 font-semibold">· ✓ client</span>}
+        {b.source === "site" && b.passengerResponse === "cancelled" && <span className="text-red-600 font-semibold">· ✗ client</span>}
       </div>
 
       {/* Linia 3: pasager + telefon (tap to call). flex-wrap: numărul nu se mai

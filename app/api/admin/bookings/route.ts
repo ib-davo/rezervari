@@ -5,6 +5,7 @@ import { autoLinkTripAndClient } from '@/lib/bookingLink'
 import { enqueueRemindersOnly } from '@/lib/emailQueue'
 import { createBookingToken, bookingResponseUrl } from '@/lib/bookingToken'
 import { appUrl as resolveAppUrl } from '@/lib/appUrl'
+import { verifyToken, COOKIE_NAME } from '@/lib/session'
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,6 +119,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Cine creează manual din panoul davo (admin / admin2) — ca panoul
+    // operatorilor să afișeze „Rezervare manuală · <nume>" în loc de „Client site".
+    // createdById rămâne null: în schemă e FK către Operator, nu către AdminUser.
+    let createdByName: string | null = null
+    try {
+      const token = request.cookies.get(COOKIE_NAME)?.value
+      const session = token ? await verifyToken(token) : null
+      if (session) {
+        const admin = await prisma.adminUser.findUnique({
+          where: { email: session.email },
+          select: { name: true },
+        })
+        createdByName = admin?.name ?? null
+      }
+    } catch {
+      // Nefatal: rezervarea se creează oricum, doar fără numele adminului.
+    }
+
     const now = new Date()
     const booking = await prisma.booking.create({
       data: {
@@ -143,6 +162,9 @@ export async function POST(request: NextRequest) {
         paidAt: paymentStatus === 'paid' ? now : null,
         confirmedAt: status === 'confirmed' ? now : null,
         tripId: tripId ?? null,
+        // Rezervare manuală din panoul admin davo.
+        source: 'admin',
+        createdByName,
       },
     })
 
