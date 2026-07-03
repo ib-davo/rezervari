@@ -264,6 +264,15 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
   - Bug găsit: ruta admin de creare (`app/api/admin/bookings/route.ts`) NU seta `source`/`createdByName` → rezervările de admin apăreau ca „Client site". Fixat în AMBELE proiecte (davo-operatori + `~/testing api/davo-website`): citește sesiunea admin (`verifyToken`→email→`AdminUser.name`), setează `source='admin'` + `createdByName`. `createdById` rămâne null (FK e către Operator, nu AdminUser).
   - ⚠️ Modificarea din davo e comisă LOCAL în `~/testing api/davo-website` (commit `ebca494`) dar NU e pushed/deployed — trebuie redeploy davo ca rezervările de admin să primească eticheta. Fără redeploy, cele vechi rămân „Client site".
 
+**Runda 5 (aceeași zi) — mobil responsive + dashboard pe CURSE:**
+- **Overflow mobil reparat** (workflow cu 5 agenți + verificare): cardurile ieșeau ~412px la 390 (spanuri `truncate` fără `min-w-0`). Fix: min-w-0 pe copiii flex/grid în BookingsView/BookingForm/layout, `overflow-x-auto` pe harta de scaune (SeatPicker). 0 overflow la 360/390 pe toate paginile. Diagnostic: `scratchpad/overflow-*.js`.
+- **Dashboard reproiectat per CURSĂ** (cerință user, înlocuiește lista per-bilet pe Active):
+  - `GET /api/operator/trips`: grupează rezervările active pe cursă (autocar+rută+dată exactă via tripId), grup „loose" pe rută+zi pentru cele fără cursă; + sumar calendar (zile→nr curse).
+  - `components/operator/TripsView.tsx`: calendar lunar (zile cu curse marcate+număr, click→cursele zilei), carduri de cursă (🚌 autocar·rută·oră·ocupare X/46) cu rezervările dedesubt (loc, telefon, sursă, acțiuni). Search global. Arhiva rămâne pe `BookingsView` (per-bilet).
+  - „+ Rezervare pe cursă" → `/panou/rezervare?tripId=…&from=…&to=…`. `TripPicker` primește `autoSelectTripId` → preselectează cursa via `pickTrip` (trece PublicTrip complet ca prețul/data să fie corecte — NU seta doar tripId, `updateSeats` nu trece tripInfo). Sare la harta de scaune.
+  - Export per cursă în `lib/tripManifest.ts`: Excel (CSV cu BOM, `;`) + PDF (HTML printabil, auto-print) — foaie de parcurs cu pasageri (loc/nume/telefon/nr/plată/status/preț) + totaluri încasat/de încasat/total. Fără dependințe noi.
+  - Decizii user: calendar lunar; grupare autocar+rută+dată; fără-cursă = grup separat; „+" preselectat; export Excel+PDF; placement pe Active (Arhiva neschimbată).
+
 **Rămase pentru producție (acțiuni USER):**
 1. **Fă repo-ul `ib-davo/rezervari` PRIVAT** (GitHub → Settings → Danger Zone).
 2. Comunică noile PIN-uri operatorilor; pune `OPERATOR_PINS` și în Vercel.
