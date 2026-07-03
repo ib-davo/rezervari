@@ -1,0 +1,299 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ===== Geografie =====
+
+model Country {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  flag      String?
+  cities    City[]
+
+  // Program săptămânal pentru cursele DUS spre țara asta (din Moldova).
+  // Toate optionale — dacă lipsesc, țara n-are program activ și nu se generează curse.
+  // Weekday: 0=duminică ... 6=sâmbătă (convenția JS Date.getDay()).
+  // Time: "HH:mm" în ora locală Europe/Chisinau.
+  outboundWeekday       Int?
+  outboundTime          String?
+  outboundDurationHours Float?
+
+  // Program săptămânal pentru cursele RETUR (din țara asta spre Moldova).
+  returnWeekday         Int?
+  returnTime            String?
+  returnDurationHours   Float?
+
+  createdAt DateTime @default(now())
+}
+
+model City {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  isOrigin  Boolean  @default(false) // true pentru orașele de plecare din Moldova
+  countryId String
+  country   Country  @relation(fields: [countryId], references: [id])
+
+  originRoutes      Route[] @relation("RouteOrigin")
+  destinationRoutes Route[] @relation("RouteDestination")
+
+  createdAt DateTime @default(now())
+
+  @@index([countryId])
+  @@index([isOrigin])
+}
+
+// ===== Operațiuni =====
+
+model Route {
+  id                String   @id @default(uuid())
+  originCityId      String
+  destinationCityId String
+  originCity        City     @relation("RouteOrigin", fields: [originCityId], references: [id])
+  destinationCity   City     @relation("RouteDestination", fields: [destinationCityId], references: [id])
+
+  basePrice        Float
+  currency         String   @default("EUR")
+  description      String?
+  seoSlug          String?
+  pageSlug         String?
+  active           Boolean  @default(true)
+  weeklyDepartures Int      @default(2)
+
+  trips            Trip[]
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([originCityId, destinationCityId])
+  @@index([active])
+}
+
+model Bus {
+  id         String   @id @default(uuid())
+  plate      String   @unique
+  label      String
+  model      String
+  year       Int
+  totalSeats Int
+  layoutJson String   // JSON serializat: { rows, cols, cells: SeatKind[] }
+  active     Boolean  @default(true)
+
+  trips      Trip[]
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Trip {
+  id          String   @id @default(uuid())
+  routeId     String
+  route       Route    @relation(fields: [routeId], references: [id])
+  busId       String
+  bus         Bus      @relation(fields: [busId], references: [id])
+
+  departureAt DateTime
+  arrivalAt   DateTime
+  status      String   @default("scheduled") // scheduled|boarding|en_route|completed|cancelled
+  capacity    Int
+  notes       String?
+
+  seatBookings    SeatBooking[]
+  bookings        Booking[]     @relation("TripBookings")
+  returnBookings  Booking[]     @relation("TripReturnBookings")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([departureAt])
+  @@index([status])
+  @@index([routeId])
+}
+
+model SeatBooking {
+  id            String   @id @default(uuid())
+  tripId        String
+  trip          Trip     @relation(fields: [tripId], references: [id])
+  seatNumber    Int      // numărul din layout-ul Bus
+  bookingId     String?
+  booking       Booking? @relation(fields: [bookingId], references: [id])
+  holdExpiresAt DateTime?
+  createdAt     DateTime @default(now())
+
+  @@unique([tripId, seatNumber])
+  @@index([bookingId])
+}
+
+// ===== Clienți =====
+
+model Client {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  phone     String
+  vip       Boolean  @default(false)
+  notes     String?
+
+  bookings  Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+}
+
+// ===== Rezervări (existent + relații noi opționale) =====
+
+model Booking {
+  id            String    @id @default(uuid())
+  bookingNumber String    @unique
+  type          String
+  status        String    @default("pending")
+
+  tripType      String?
+  departureCity String
+  arrivalCity   String
+  departureDate DateTime
+  returnDate    DateTime?
+
+  firstName     String
+  lastName      String
+  email         String
+  phone         String
+
+  adults        Int       @default(1)
+  children      Int       @default(0)
+
+  parcelWeight  Float?
+  parcelDetails String?
+
+  price         Float
+  currency      String    @default("EUR")
+  paymentStatus String    @default("pending")
+  payMethod     String?   // card_on_pickup | cash_on_pickup
+  paidAt        DateTime?
+
+  // Confirmare/anulare prin link din email-ul de confirmare
+  passengerResponse   String?   // confirmed | cancelled
+  passengerResponseAt DateTime?
+
+  ticketUrl     String?
+  qrCode        String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  confirmedAt   DateTime?
+
+  emailSent     Boolean   @default(false)
+  emailSentAt   DateTime?
+
+  // Panou operatori (davo-operatori). Aditiv: rândurile vechi primesc source='site',
+  // restul rămân null. Nimic existent nu se schimbă, davo nu setează aceste câmpuri.
+  source         String    @default("site") // site | operator | admin
+  createdById    String?                     // Operator.id (gol pentru rezervări de pe site)
+  createdByName  String?                     // snapshot nume (afișat și pe davo, fără join)
+  createdBy      Operator? @relation(fields: [createdById], references: [id])
+  archivedAt     DateTime?                    // cursa a trecut → iese din panou, rămâne salvată
+
+  // relații noi, OPȚIONALE (pentru a nu sparge bookings existente)
+  clientId       String?
+  client         Client?   @relation(fields: [clientId], references: [id])
+  tripId         String?
+  trip           Trip?     @relation("TripBookings", fields: [tripId], references: [id])
+  returnTripId   String?
+  returnTrip     Trip?     @relation("TripReturnBookings", fields: [returnTripId], references: [id])
+
+  seatBookings   SeatBooking[]
+  emailJobs      EmailJob[]
+
+  @@index([bookingNumber])
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+  @@index([clientId])
+  @@index([tripId])
+  @@index([source])
+  @@index([archivedAt])
+  @@index([createdById])
+}
+
+// ===== Operatori (panou davo-operatori — login cu PIN 4 cifre) =====
+
+model Operator {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique // adrian, olga, dumitru, alexandru, ghenadie, catalin, gabriela
+  pinHash   String             // bcrypt al PIN-ului de 4 cifre
+  role      String    @default("operator") // operator | supervisor
+  active    Boolean   @default(true)
+  lastLogin DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  bookings  Booking[]
+}
+
+// ===== Emailuri automate =====
+
+model EmailJob {
+  id        String   @id @default(uuid())
+  type      String   // confirmation | reminder_24h | reminder_2h | cancellation
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+
+  sendAt    DateTime
+  sentAt    DateTime?
+  status    String   @default("scheduled") // scheduled|queued|sent|failed|cancelled
+  attempts  Int      @default(0)
+  lastError String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sendAt, status])
+  @@index([bookingId])
+}
+
+model EmailLog {
+  id          String    @id @default(uuid())
+  to          String
+  subject     String
+  template    String
+  status      String
+  relatedId   String?
+  error       String?
+  sentAt      DateTime  @default(now())
+  deliveredAt DateTime?
+  openedAt    DateTime?
+
+  @@index([to])
+  @@index([relatedId])
+  @@index([sentAt])
+}
+
+// ===== Admin =====
+
+model AdminUser {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String
+  password  String
+  role      String    @default("admin")
+  lastLogin DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Settings {
+  id    String @id @default("1")
+  key   String @unique
+  value String
+}
