@@ -45,7 +45,7 @@ export default function PanouLayout({ children }: { children: React.ReactNode })
               <div className="text-[11px] text-[color:var(--ink-500)] truncate">{name ? name : "…"}</div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {/* Buton mare doar pe desktop — pe telefon e în bara de jos */}
             <Link
               href="/panou/rezervare"

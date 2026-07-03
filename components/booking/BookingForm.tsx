@@ -519,7 +519,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
           />
 
           <div className="mt-6 grid gap-6 lg:grid-cols-[1fr,340px]">
-            <div>
+            <div className="min-w-0">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={`${mode}-${step}`}
@@ -1240,15 +1240,15 @@ function PaymentStep({
         </div>
         <div className="mt-3 divide-y divide-[color:var(--ink-200)]">
           {lines.map((l) => (
-            <div key={l.label} className="flex items-center justify-between py-2.5 text-sm">
-              <span className="text-[color:var(--ink-700)]">{l.label}</span>
-              <span className="font-semibold text-[color:var(--navy-900)]">{l.value}</span>
+            <div key={l.label} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <span className="min-w-0 text-[color:var(--ink-700)]">{l.label}</span>
+              <span className="shrink-0 font-semibold text-[color:var(--navy-900)]">{l.value}</span>
             </div>
           ))}
         </div>
-        <div className="mt-4 flex items-center justify-between pt-3 border-t border-[color:var(--ink-200)]">
-          <span className="text-sm font-semibold text-[color:var(--ink-700)]">Total de plată</span>
-          <span className="font-[family-name:var(--font-montserrat)] text-3xl font-extrabold text-[color:var(--navy-900)]">
+        <div className="mt-4 flex items-center justify-between gap-3 pt-3 border-t border-[color:var(--ink-200)]">
+          <span className="min-w-0 text-sm font-semibold text-[color:var(--ink-700)]">Total de plată</span>
+          <span className="shrink-0 font-[family-name:var(--font-montserrat)] text-3xl font-extrabold text-[color:var(--navy-900)]">
             {total}
           </span>
         </div>
@@ -1350,16 +1350,16 @@ function SummaryCard({
         <div className="bg-noise absolute inset-0 opacity-30" />
         <div className="relative">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <div className="text-[10px] font-bold uppercase tracking-[0.3em] text-[color:var(--red-400)]">
                 {mode === "bilet" ? "Biletul tău" : "Coletul tău"}
               </div>
-              <div className="mt-2 font-[family-name:var(--font-montserrat)] text-2xl font-extrabold leading-tight">
+              <div className="mt-2 font-[family-name:var(--font-montserrat)] text-2xl font-extrabold leading-tight break-words">
                 {from} <span className="text-[color:var(--red-400)]">→</span> {to.split(",")[0]}
               </div>
-              {country && <div className="text-xs text-white/55 mt-0.5">{country}</div>}
+              {country && <div className="text-xs text-white/55 mt-0.5 break-words">{country}</div>}
             </div>
-            {flagCode && <CountryFlag code={flagCode} className="h-9 w-12" />}
+            {flagCode && <CountryFlag code={flagCode} className="h-9 w-12 shrink-0" />}
           </div>
 
           <div className="mt-5 space-y-2 text-sm">
@@ -1431,7 +1431,7 @@ function SummaryCard({
 function Row({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-white/80">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80">
         {icon}
       </span>
       <div className="flex-1 min-w-0">

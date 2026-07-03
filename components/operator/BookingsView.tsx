@@ -419,16 +419,16 @@ function BookingCard({
   };
 
   return (
-    <div className={`rounded-xl border bg-white p-3 ${
+    <div className={`min-w-0 rounded-xl border bg-white p-3 ${
       cancelled ? "border-red-100 opacity-75" : "border-[color:var(--ink-200)]"
     }`}>
       {/* Linia 1: status + nr + cine + preț */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(b.status)}`} title={statusLabel(b.status)} />
-          <span className="font-mono text-[11px] font-bold text-[color:var(--navy-900)] truncate">{b.bookingNumber}</span>
-          <span className="text-[11px] text-[color:var(--ink-400)]">·</span>
-          <span className={`text-[11px] font-semibold truncate ${sourceClass(b.source)}`}>{sourceLabel(b)}</span>
+          <span className="shrink-0 font-mono text-[11px] font-bold text-[color:var(--navy-900)] truncate">{b.bookingNumber}</span>
+          <span className="shrink-0 text-[11px] text-[color:var(--ink-400)]">·</span>
+          <span className={`min-w-0 text-[11px] font-semibold truncate ${sourceClass(b.source)}`}>{sourceLabel(b)}</span>
         </div>
         <div className="text-right shrink-0">
           <div className="text-sm font-extrabold leading-none text-[color:var(--navy-900)]">{b.price}{curr(b.currency)}</div>
@@ -439,10 +439,10 @@ function BookingCard({
       </div>
 
       {/* Linia 2: ruta + data + pax */}
-      <div className="mt-1.5 flex items-center gap-1.5 text-sm font-bold text-[color:var(--navy-900)]">
-        <span className="truncate">{b.departureCity}</span>
+      <div className="mt-1.5 flex min-w-0 items-center gap-1.5 text-sm font-bold text-[color:var(--navy-900)]">
+        <span className="min-w-0 truncate">{b.departureCity}</span>
         <ArrowRight className="h-3.5 w-3.5 shrink-0 text-[color:var(--red-500)]" />
-        <span className="truncate">{b.arrivalCity}</span>
+        <span className="min-w-0 truncate">{b.arrivalCity}</span>
       </div>
       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-[color:var(--ink-500)]">
         <span>{fmtDate.format(dep)} · {fmtTime.format(dep)}</span>
@@ -469,7 +469,7 @@ function BookingCard({
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--navy-900)] min-w-0">
           <User className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
-          <span className="truncate">{b.firstName} {b.lastName}</span>
+          <span className="min-w-0 truncate">{b.firstName} {b.lastName}</span>
         </span>
         <a
           href={`tel:${b.phone}`}
@@ -501,7 +501,7 @@ function BookingCard({
             className="inline-flex max-w-full items-center gap-1 rounded-full border border-[color:var(--ink-200)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
           >
             <Mail className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
-            <span className="truncate">{b.email}</span>
+            <span className="min-w-0 truncate">{b.email}</span>
           </a>
         </div>
       )}

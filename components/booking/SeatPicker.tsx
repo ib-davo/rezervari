@@ -53,7 +53,7 @@ export function SeatPicker({
       </div>
 
       <div className="mt-6 flex items-start gap-5">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0 overflow-x-auto">
           <div className="mx-auto w-fit">
             <div className="mb-3 flex items-center justify-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--ink-400)]">
               <span className="h-px w-8 bg-[color:var(--ink-200)]" /> Față autocar
