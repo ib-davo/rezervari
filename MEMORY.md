@@ -279,7 +279,13 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
 - **Atribuire manuală autobuz**: coloană nouă `Booking.manualBusId String?` — ADITIVĂ/nullable, aplicată pe DB-ul de PRODUCȚIE cu `ADD COLUMN IF NOT EXISTS` (via `prisma db execute`), oglindită în schema davo. `GET /api/operator/buses` (listă), `PATCH /api/operator/bookings/[id]` acceptă `manualBusId` (validează bus există), dropdown „Atribuie autocar" pe rezervările fără cursă (`components/operator/TripsView.tsx`). Grupare: bus = trip.bus ?? manualBus.
 - Export (`lib/tripManifest.ts`): foaia = TOȚI pasagerii cursei fizice (din toate orașele), coloană **Ruta** per pasager — ca foaia reală (Nr d/o, Loc, Nume, Telefon, Ruta, Nr, Plată, Preț + totaluri).
 - ⚠️ IMPORTANT: după `prisma generate` TREBUIE repornit `next dev` — altfel clientul vechi din memorie dă „Unknown field manualBusId" (500). La deploy Vercel: build-ul rulează `prisma generate`, deci ok.
-- Verificat e2e: grupare multi-țară (Bruxelles+Anderlecht+Horhausen pe DAW 077 = 5/54), consolidare (19 iul 3→1), atribuire+scoatere (curățat producția), export cu toți pasagerii, 0 overflow mobil. Review adversarial rulat (workflow).
+- Verificat e2e: grupare multi-țară (Bruxelles+Anderlecht+Horhausen pe DAW 077 = 5/54), consolidare (19 iul 3→1), atribuire+scoatere (curățat producția), export cu toți pasagerii, 0 overflow mobil.
+- **Review adversarial (workflow, 6 probleme confirmate) → reparate:**
+  1. Round-trip: gruparea ignora `returnTripId` → cursa de retur nu apărea + ocupare umflată. Fix: `placeLeg` plasează fiecare rezervare pe AMBELE leg-uri (dus + retur); `seatsFor` filtrează pe `g.tripIds` (cardul are member trips).
+  2. Direcția scoasă din cheia autobuzului (`dk:bus:busId`, nu `dk:direction:busId`) — un autobuz face o direcție/zi, iar atribuirea manuală se contopește chiar dacă orașul rezervării n-are țară (site/panou salvează „Chișinău" fără țară → countryOf → „x"). Fără autobuz: cheie `dk:none:direction`.
+  3+4. Ocupare = din pasagerii LISTAȚI (locuri pe cursele cardului, sau `pax` dacă n-au locuri), NU din `trip._count` global (includea arhivate/holds). Cardul „fără autocar" arată nr. pasageri, nu 0.
+  5. (nereparat — follow-up) davo n-are fișier de migrare pt. `manualBusId` (are doar în schema.prisma). Producția are coloana (aplicată din davo-operatori); risc doar pe DB fresh/preview davo, unde davo oricum nu folosește coloana. De adăugat o migrare în davo dacă se face `migrate reset/deploy` pe DB nou.
+  6. LOW rămase acceptabile: `act` optimist nu tratează manualBusId (dar reload după PATCH rezolvă); validare manualBusId cere acum `active:true`.
 
 **Rămase pentru producție (acțiuni USER):**
 1. **Fă repo-ul `ib-davo/rezervari` PRIVAT** (GitHub → Settings → Danger Zone).
