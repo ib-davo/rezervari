@@ -154,6 +154,14 @@ Secretele reale sunt în `.env.local` și `.env` (NU în acest doc). Conțin: `D
 - Deploy davo-operatori: CLI-ul vechi (44) nu mergea → `npx vercel@latest --prod --yes`. La update-uri viitoare: fie `npx vercel@latest --prod`, fie conectează repo-ul `ib-davo/rezervari` la proiectul Vercel pt. auto-deploy pe push.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = încă placeholder în Vercel → realtime pe polling 15s. Pune cheia reală în Vercel env + redeploy pt. „Live".
 
+## 7ter. Runda 7 (4 iul 2026) — exporturi + curse goale pe calendar
+
+- **Export refăcut** (userul: „excelurile sunt praf/urate"): **Excel = .xlsx REAL** generat pe server cu `exceljs` — `GET /api/operator/manifest?key=<groupKey>` (antet colorat navy, borduri, lățimi, plată colorată, total). Butonul „Excel" e acum un `<a href>` (cookie same-origin). **PDF redesign** complet în `lib/tripManifest.ts` (antet DAVO GROUP, pastilă pasageri, rânduri alternante, coloană Observații). Ambele: doar pasageri ACTIVI (cancelled excluși).
+- Gruparea extrasă în **`lib/tripGrouping.ts`** (partajată de dashboard + export). Ocuparea exclude cancelled.
+- **Curse goale pe calendar** (userul: „arată și cursele goale, cele cu pasageri special, cele goale goale"): endpoint returnează `scheduledDays` + carduri `kind:"empty"` (autobuz+zi programat fără rezervări — un autobuz/zi = o cursă). Calendar: zile cu pasageri = roșu+număr; zile programate goale = conturate+punct; legendă. Card gol mut cu „+ Rezervare pe cursă". ATENȚIE date: toate cele ~918 curse auto-generate au ACELAȘI autobuz (DAW 077) → grupate pe autobuz+zi dau ~1 cursă fizică/zi de plecare (bine).
+- **Redeployat** pe davo-operatori.vercel.app (`npx vercel@latest --prod`; CLI-ul global e vechi). Verificat pe prod: 66 grupuri (62 goale), xlsx 200.
+- `exceljs` adăugat în dependencies.
+
 ## 7. Rulare / build / deploy
 
 ```bash
