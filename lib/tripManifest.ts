@@ -3,7 +3,7 @@
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 
 export type TripGroup = {
-  kind: "trip" | "loose";
+  kind: "trip" | "loose" | "empty";
   key: string;
   busId: string | null;
   busLabel: string | null;

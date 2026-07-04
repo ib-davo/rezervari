@@ -38,7 +38,7 @@ export const BOOKING_SELECT = {
 export type BookingRow = Awaited<ReturnType<typeof loadBookings>>[number];
 
 export type TripGroupData = {
-  kind: "trip" | "loose";
+  kind: "trip" | "loose" | "empty";
   key: string;
   busId: string | null;
   busLabel: string | null;
@@ -104,7 +104,7 @@ type Group = TripGroupData & {
   _memberTrips: Set<string>;
 };
 
-export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; calendar: Record<string, number> }> {
+export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; calendar: Record<string, number>; scheduledDays: string[] }> {
   const now = new Date();
   const bookings = await loadBookings(now);
 
@@ -236,8 +236,61 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       return pub;
     });
 
+  // Calendarul „cu pasageri" (doar cursele cu rezervări) — înainte de a adăuga goalele.
   const calendar: Record<string, number> = {};
   for (const g of list) calendar[g.dayKey] = (calendar[g.dayKey] ?? 0) + 1;
 
-  return { groups: list, calendar };
+  // Curse PROGRAMATE GOALE: zilele cu autobuz programat dar fără rezervări.
+  // Un autobuz într-o zi = o cursă goală (cheie identică cu cea a grupurilor cu
+  // rezervări, deci zilele cu rezervări NU primesc și card gol). Fereastră ~16 săpt.
+  const horizon = new Date(now.getTime() + 16 * 7 * 24 * 3600 * 1000);
+  const scheduled = await prisma.trip.findMany({
+    where: { departureAt: { gte: now, lte: horizon }, status: { in: ["scheduled", "boarding"] } },
+    select: { departureAt: true, busId: true },
+    take: 5000,
+  });
+  const scheduledDaysSet = new Set<string>();
+  const emptyCombos = new Map<string, { dk: string; busId: string; iso: string }>();
+  for (const t of scheduled) {
+    const dk = dayKey(t.departureAt);
+    scheduledDaysSet.add(dk);
+    if (!t.busId) continue;
+    const key = `${dk}:bus:${t.busId}`;
+    const iso = t.departureAt.toISOString();
+    const e = emptyCombos.get(key);
+    if (!e) emptyCombos.set(key, { dk, busId: t.busId, iso });
+    else if (iso < e.iso) e.iso = iso;
+  }
+  const existingKeys = new Set(list.map((g) => g.key));
+  const emptyBusIds = [...new Set([...emptyCombos].filter(([k]) => !existingKeys.has(k)).map(([, v]) => v.busId))];
+  const emptyBuses = emptyBusIds.length
+    ? await prisma.bus.findMany({ where: { id: { in: emptyBusIds } }, select: { id: true, label: true, plate: true, totalSeats: true } })
+    : [];
+  const ebMap = new Map(emptyBuses.map((b) => [b.id, b]));
+  for (const [key, c] of emptyCombos) {
+    if (existingKeys.has(key)) continue;
+    const bus = ebMap.get(c.busId);
+    if (!bus) continue;
+    list.push({
+      kind: "empty",
+      key,
+      busId: bus.id,
+      busLabel: bus.label,
+      busPlate: bus.plate ?? null,
+      from: "",
+      to: "",
+      departureAt: c.iso,
+      arrivalAt: null,
+      capacity: bus.totalSeats ?? null,
+      seatsTaken: 0,
+      dayKey: c.dk,
+      multi: false,
+      add: {},
+      tripIds: [],
+      bookings: [],
+    });
+  }
+  list.sort((a, b) => a.departureAt.localeCompare(b.departureAt));
+
+  return { groups: list, calendar, scheduledDays: [...scheduledDaysSet] };
 }

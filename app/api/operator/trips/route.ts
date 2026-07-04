@@ -9,6 +9,6 @@ export async function GET(req: NextRequest) {
   const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-  const { groups, calendar } = await buildTripGroups();
-  return NextResponse.json({ success: true, groups, calendar });
+  const { groups, calendar, scheduledDays } = await buildTripGroups();
+  return NextResponse.json({ success: true, groups, calendar, scheduledDays });
 }

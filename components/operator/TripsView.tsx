@@ -77,6 +77,7 @@ type BusOption = { id: string; label: string; plate: string | null; totalSeats: 
 export default function TripsView() {
   const [groups, setGroups] = useState<TripGroup[]>([]);
   const [calendar, setCalendar] = useState<Record<string, number>>({});
+  const [scheduledDays, setScheduledDays] = useState<Set<string>>(new Set());
   const [buses, setBuses] = useState<BusOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -94,6 +95,7 @@ export default function TripsView() {
       if (data.success) {
         setGroups(data.groups);
         setCalendar(data.calendar || {});
+        setScheduledDays(new Set(data.scheduledDays || []));
         setError(false);
       } else setError(true);
     } catch {
@@ -192,7 +194,8 @@ export default function TripsView() {
   const visibleGroups = useMemo(() => {
     return groups
       .map((g) => ({ ...g, bookings: g.bookings.filter(matchBooking) }))
-      .filter((g) => g.bookings.length > 0)
+      // Cursele goale (fără rezervări) apar doar când NU cauți (n-au ce potrivi).
+      .filter((g) => (g.kind === "empty" ? !searching : g.bookings.length > 0))
       .filter((g) => searching || g.dayKey === selectedDay);
   }, [groups, matchBooking, searching, selectedDay]);
 
@@ -281,31 +284,49 @@ export default function TripsView() {
               const count = calendar[key] || 0;
               const isSel = key === selectedDay;
               const isToday = key === tk;
-              const has = count > 0;
+              const hasPax = count > 0;                          // cursă cu pasageri → special
+              const schedEmpty = !hasPax && scheduledDays.has(key); // autocar programat, gol → mut
+              const clickable = hasPax || schedEmpty;
               return (
                 <button
                   key={i}
-                  disabled={!has}
+                  disabled={!clickable}
                   onClick={() => setSelectedDay(key)}
+                  title={hasPax ? `${count} ${count === 1 ? "cursă" : "curse"} cu pasageri` : schedEmpty ? "Autocar programat, fără rezervări" : undefined}
                   className={`relative flex aspect-square flex-col items-center justify-center rounded-lg text-sm transition-colors ${
                     isSel
                       ? "bg-[color:var(--navy-900)] font-bold text-white"
-                      : has
+                      : hasPax
                         ? "bg-[color:var(--red-50)] font-semibold text-[color:var(--navy-900)] hover:bg-[color:var(--red-100)]"
-                        : inMonth
-                          ? "text-[color:var(--ink-400)]"
-                          : "text-[color:var(--ink-200)]"
-                  } ${isToday && !isSel ? "ring-1 ring-[color:var(--red-400)]" : ""} ${has ? "cursor-pointer" : "cursor-default"}`}
+                        : schedEmpty
+                          ? "font-medium text-[color:var(--navy-700)] ring-1 ring-inset ring-[color:var(--ink-200)] hover:bg-[color:var(--ink-50)]"
+                          : inMonth
+                            ? "text-[color:var(--ink-400)]"
+                            : "text-[color:var(--ink-200)]"
+                  } ${isToday && !isSel ? "ring-1 ring-[color:var(--red-400)]" : ""} ${clickable ? "cursor-pointer" : "cursor-default"}`}
                 >
                   {date.getDate()}
-                  {has && (
+                  {hasPax ? (
                     <span className={`mt-0.5 text-[9px] font-bold leading-none ${isSel ? "text-white/80" : "text-[color:var(--red-500)]"}`}>
                       {count}
                     </span>
-                  )}
+                  ) : schedEmpty ? (
+                    <span className={`mt-0.5 h-1 w-1 rounded-full ${isSel ? "bg-white/70" : "bg-[color:var(--ink-300)]"}`} />
+                  ) : null}
                 </button>
               );
             })}
+          </div>
+          {/* Legendă */}
+          <div className="mt-2 flex items-center justify-center gap-4 text-[10px] font-semibold text-[color:var(--ink-400)]">
+            <span className="inline-flex items-center gap-1">
+              <span className="flex h-4 w-4 items-center justify-center rounded bg-[color:var(--red-50)] text-[8px] font-bold text-[color:var(--red-500)]">3</span>
+              cu pasageri
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="flex h-4 w-4 items-center justify-center rounded ring-1 ring-inset ring-[color:var(--ink-200)]"><span className="h-1 w-1 rounded-full bg-[color:var(--ink-300)]" /></span>
+              autocar programat, gol
+            </span>
           </div>
         </div>
       )}
@@ -386,14 +407,41 @@ function TripCard({ g, onAct, showDay, buses }: {
   const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.bookings.length}`;
   const paidCount = g.bookings.filter((b) => b.paymentStatus === "paid").length;
 
-  // Link "+": endpoint-ul calculează cum se preselectează. O singură cursă-rută
-  // → tripId (sare la locuri). Cursă fizică cu mai multe puncte de îmbarcare →
-  // precompletăm doar capătul fix (destinația/originea), operatorul alege punctul.
+  // Link "+": endpoint-ul calculează cum se preselectează cursa (tripId / capăt fix).
   const p = new URLSearchParams();
   if (g.add.tripId) p.set("tripId", g.add.tripId);
   if (g.add.from) p.set("from", g.add.from);
   if (g.add.to) p.set("to", g.add.to);
   const addHref = `/panou/rezervare${p.toString() ? `?${p.toString()}` : ""}`;
+
+  // Cursă PROGRAMATĂ GOALĂ (autobuz în ziua asta, fără rezervări) — card mut, doar
+  // cu „+ Rezervare pe cursă".
+  if (g.kind === "empty") {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-dashed border-[color:var(--ink-200)] bg-[color:var(--ink-50)] p-3 sm:p-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">
+            <Bus className="h-3.5 w-3.5" />
+            <span className="truncate">{g.busLabel || "Autocar programat"}</span>
+            {g.busPlate && <span>· {g.busPlate}</span>}
+          </div>
+          <div className="mt-0.5 text-sm font-bold text-[color:var(--navy-900)]">
+            Autocar programat · <span className="text-[color:var(--ink-500)]">fără rezervări</span>
+          </div>
+          <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-400)]">
+            {showDay && <>{cap(fmtDayLong.format(dep))} · </>}{fmtTime.format(dep)}
+            {g.capacity ? ` · ${g.capacity} locuri libere` : ""}
+          </div>
+        </div>
+        <Link
+          href={addHref}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
+        >
+          <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
+        </Link>
+      </div>
+    );
+  }
 
   // Excel real (.xlsx stilizat) generat pe server; link cu cookie same-origin.
   const excelHref = `/api/operator/manifest?key=${encodeURIComponent(g.key)}`;
