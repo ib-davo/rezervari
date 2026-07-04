@@ -273,6 +273,14 @@ Cron arhivare configurat în `vercel.json` (zilnic 02:00).
   - Export per cursă în `lib/tripManifest.ts`: Excel (CSV cu BOM, `;`) + PDF (HTML printabil, auto-print) — foaie de parcurs cu pasageri (loc/nume/telefon/nr/plată/status/preț) + totaluri încasat/de încasat/total. Fără dependințe noi.
   - Decizii user: calendar lunar; grupare autocar+rută+dată; fără-cursă = grup separat; „+" preselectat; export Excel+PDF; placement pe Active (Arhiva neschimbată).
 
+**Runda 6 (aceeași zi) — model „cursă fizică":**
+- Problema (user): un autobuz care pleacă dintr-o țară trece prin mai multe (Belgia→Germania→Olanda) și ia pasageri din toate — în DB sunt rute/Trip-uri separate per oraș, deci apăreau ca 3 curse separate deși fizic e UN autobuz. Export-ul scotea doar dintr-un oraș.
+- Model implementat: **o cursă = un autobuz (real din Trip.bus SAU atribuit manual) + zi + direcție** (spre/dinspre Moldova). `app/api/operator/trips/route.ts` grupează pe `zi:direcție:busKey`; ocupare = suma locurilor pe leg-uri (dedup pe tripId); rezervările fără autobuz dintr-o zi+direcție → un singur card „fără autocar".
+- **Atribuire manuală autobuz**: coloană nouă `Booking.manualBusId String?` — ADITIVĂ/nullable, aplicată pe DB-ul de PRODUCȚIE cu `ADD COLUMN IF NOT EXISTS` (via `prisma db execute`), oglindită în schema davo. `GET /api/operator/buses` (listă), `PATCH /api/operator/bookings/[id]` acceptă `manualBusId` (validează bus există), dropdown „Atribuie autocar" pe rezervările fără cursă (`components/operator/TripsView.tsx`). Grupare: bus = trip.bus ?? manualBus.
+- Export (`lib/tripManifest.ts`): foaia = TOȚI pasagerii cursei fizice (din toate orașele), coloană **Ruta** per pasager — ca foaia reală (Nr d/o, Loc, Nume, Telefon, Ruta, Nr, Plată, Preț + totaluri).
+- ⚠️ IMPORTANT: după `prisma generate` TREBUIE repornit `next dev` — altfel clientul vechi din memorie dă „Unknown field manualBusId" (500). La deploy Vercel: build-ul rulează `prisma generate`, deci ok.
+- Verificat e2e: grupare multi-țară (Bruxelles+Anderlecht+Horhausen pe DAW 077 = 5/54), consolidare (19 iul 3→1), atribuire+scoatere (curățat producția), export cu toți pasagerii, 0 overflow mobil. Review adversarial rulat (workflow).
+
 **Rămase pentru producție (acțiuni USER):**
 1. **Fă repo-ul `ib-davo/rezervari` PRIVAT** (GitHub → Settings → Danger Zone).
 2. Comunică noile PIN-uri operatorilor; pune `OPERATOR_PINS` și în Vercel.
