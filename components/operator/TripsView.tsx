@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
-import { buildManifestHtml, buildManifestCsv, type TripGroup } from "@/lib/tripManifest";
+import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
 
 const fmtTime = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" });
 const fmtDayLong = new Intl.DateTimeFormat("ro-RO", { weekday: "long", day: "numeric", month: "long" });
@@ -395,10 +395,8 @@ function TripCard({ g, onAct, showDay, buses }: {
   if (g.add.to) p.set("to", g.add.to);
   const addHref = `/panou/rezervare${p.toString() ? `?${p.toString()}` : ""}`;
 
-  const exportExcel = () => {
-    const csv = buildManifestCsv(g);
-    downloadBlob(`cursa-${g.from}-${g.to}-${g.dayKey}.csv`.replace(/[^\w.-]+/g, "_"), csv, "text/csv;charset=utf-8;");
-  };
+  // Excel real (.xlsx stilizat) generat pe server; link cu cookie same-origin.
+  const excelHref = `/api/operator/manifest?key=${encodeURIComponent(g.key)}`;
   const exportPdf = () => {
     const html = buildManifestHtml(g);
     const w = window.open("", "_blank");
@@ -444,12 +442,12 @@ function TripCard({ g, onAct, showDay, buses }: {
           >
             <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
           </Link>
-          <button
-            onClick={exportExcel}
+          <a
+            href={excelHref}
             className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
           >
             <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
-          </button>
+          </a>
           <button
             onClick={exportPdf}
             className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
@@ -636,16 +634,4 @@ function RowBtn({ busy, onClick, className, children }: {
       {children}
     </button>
   );
-}
-
-function downloadBlob(filename: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
