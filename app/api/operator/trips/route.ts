@@ -38,33 +38,50 @@ const BOOKING_SELECT = {
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function isMD(country?: string | null): boolean {
+  return /moldova/i.test(country ?? "");
+}
+function withCountry(city: string, country?: string | null): string {
+  return country ? `${city}, ${country}` : city;
+}
+function joinCities(set: Set<string>, max = 2): string {
+  const arr = [...set];
+  if (arr.length <= max) return arr.join(", ");
+  return `${arr.slice(0, max).join(", ")} +${arr.length - max}`;
+}
 
 type Group = {
   kind: "trip" | "loose";
   key: string;
-  tripId: string | null;
+  // afișare
   busLabel: string | null;
   busPlate: string | null;
   from: string;
   to: string;
-  fromParam: string; // "Oraș, Țară" pentru linkul de rezervare pe cursă
-  toParam: string;
-  departureAt: string; // ISO
+  departureAt: string;
   arrivalAt: string | null;
   capacity: number | null;
   seatsTaken: number;
   dayKey: string;
+  multi: boolean; // rută cu mai multe puncte de îmbarcare/coborâre
+  // link "+"
+  add: { tripId?: string; from?: string; to?: string };
   bookings: unknown[];
+  // interne (nu se serializează direct)
+  _origins: Set<string>;
+  _dests: Set<string>;
+  _originsFull: Set<string>;
+  _destsFull: Set<string>;
+  _memberSeats: Map<string, number>;
 };
 
-// Vederea pe CURSE: rezervările active grupate după cursa lor (autocar + rută +
-// dată exactă). Cele fără cursă atribuită → grupuri "loose" după rută + zi.
+// Vederea pe CURSE FIZICE: o cursă = un autobuz într-o zi, într-o direcție —
+// chiar dacă în DB are mai multe rute (puncte de îmbarcare diferite ale
+// aceleiași curse). Grupăm după bus + zi + direcție (spre/dinspre Moldova).
 export async function GET(req: NextRequest) {
   const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-  // "Activ" = ultima dată relevantă (retur dacă există, altfel plecarea) în viitor.
-  // Ora reală, nu miezul nopții (o cursă de azi 08:30 iese după 08:30).
   const now = new Date();
 
   const bookings = await prisma.booking.findMany({
@@ -80,7 +97,6 @@ export async function GET(req: NextRequest) {
     take: 2000,
   });
 
-  // Cursele reale referite de rezervări → detalii (autocar, rută, ocupare totală).
   const tripIds = [...new Set(bookings.map((b) => b.tripId).filter((x): x is string => !!x))];
   const trips = tripIds.length
     ? await prisma.trip.findMany({
@@ -90,7 +106,7 @@ export async function GET(req: NextRequest) {
           departureAt: true,
           arrivalAt: true,
           capacity: true,
-          bus: { select: { label: true, plate: true } },
+          bus: { select: { id: true, label: true, plate: true } },
           route: {
             select: {
               originCity: { select: { name: true, country: { select: { name: true } } } },
@@ -106,38 +122,57 @@ export async function GET(req: NextRequest) {
   const groups = new Map<string, Group>();
 
   for (const b of bookings) {
-    // Grupăm după cursa DUS (tripId). Rezervările fără cursă → grup pe rută+zi.
     const trip = b.tripId ? tripMap.get(b.tripId) : null;
+
     if (trip) {
-      const key = `trip:${trip.id}`;
+      const dk = dayKey(trip.departureAt);
+      const oName = trip.route?.originCity?.name ?? b.departureCity;
+      const dName = trip.route?.destinationCity?.name ?? b.arrivalCity;
+      const oCountry = trip.route?.originCity?.country?.name;
+      const dCountry = trip.route?.destinationCity?.country?.name;
+      // Direcția: spre Moldova (inbound) vs dinspre Moldova (outbound). Ține
+      // separat dus/retur ale aceluiași autobuz în aceeași zi.
+      const direction = isMD(dCountry) ? "in" : isMD(oCountry) ? "out" : "x";
+      // Identitatea autobuzului fizic. Fără id → cădem pe etichetă+plăcuță.
+      const busKey = trip.bus?.id ?? `${trip.bus?.label ?? "?"}|${trip.bus?.plate ?? "?"}`;
+      const key = `run:${busKey}:${dk}:${direction}`;
+
       let g = groups.get(key);
       if (!g) {
-        const oName = trip.route?.originCity?.name ?? b.departureCity;
-        const dName = trip.route?.destinationCity?.name ?? b.arrivalCity;
-        const oCountry = trip.route?.originCity?.country?.name;
-        const dCountry = trip.route?.destinationCity?.country?.name;
         g = {
           kind: "trip",
           key,
-          tripId: trip.id,
           busLabel: trip.bus?.label ?? null,
           busPlate: trip.bus?.plate ?? null,
           from: oName,
           to: dName,
-          fromParam: oCountry ? `${oName}, ${oCountry}` : oName,
-          toParam: dCountry ? `${dName}, ${dCountry}` : dName,
           departureAt: trip.departureAt.toISOString(),
           arrivalAt: trip.arrivalAt ? trip.arrivalAt.toISOString() : null,
           capacity: trip.capacity ?? null,
-          seatsTaken: trip._count.seatBookings,
-          dayKey: dayKey(trip.departureAt),
+          seatsTaken: 0,
+          dayKey: dk,
+          multi: false,
+          add: {},
           bookings: [],
+          _origins: new Set(),
+          _dests: new Set(),
+          _originsFull: new Set(),
+          _destsFull: new Set(),
+          _memberSeats: new Map(),
         };
         groups.set(key, g);
       }
+      g._origins.add(oName);
+      g._dests.add(dName);
+      g._originsFull.add(withCountry(oName, oCountry));
+      g._destsFull.add(withCountry(dName, dCountry));
+      // Ocupare fizică = suma locurilor pe toate leg-urile aceluiași autobuz
+      // (dedup pe tripId, ca o cursă cu 2 pasageri să nu fie numărată de 2 ori).
+      g._memberSeats.set(trip.id, trip._count.seatBookings);
+      if (trip.departureAt.toISOString() < g.departureAt) g.departureAt = trip.departureAt.toISOString();
+      if (!g.capacity && trip.capacity) g.capacity = trip.capacity;
       g.bookings.push(b);
     } else {
-      // Fără cursă: cheie pe rută + ziua plecării.
       const dk = dayKey(b.departureDate);
       const key = `loose:${b.departureCity}|${b.arrivalCity}|${dk}`;
       let g = groups.get(key);
@@ -145,31 +180,68 @@ export async function GET(req: NextRequest) {
         g = {
           kind: "loose",
           key,
-          tripId: null,
           busLabel: null,
           busPlate: null,
           from: b.departureCity,
           to: b.arrivalCity,
-          fromParam: b.departureCity,
-          toParam: b.arrivalCity,
           departureAt: b.departureDate.toISOString(),
           arrivalAt: null,
           capacity: null,
           seatsTaken: 0,
           dayKey: dk,
+          multi: false,
+          add: { from: b.departureCity, to: b.arrivalCity },
           bookings: [],
+          _origins: new Set([b.departureCity]),
+          _dests: new Set([b.arrivalCity]),
+          _originsFull: new Set([b.departureCity]),
+          _destsFull: new Set([b.arrivalCity]),
+          _memberSeats: new Map(),
         };
         groups.set(key, g);
       }
-      // Cel mai devreme dintre rezervări dă ora grupului loose.
       if (b.departureDate.toISOString() < g.departureAt) g.departureAt = b.departureDate.toISOString();
       g.bookings.push(b);
     }
   }
 
-  const list = [...groups.values()].sort((a, b) => a.departureAt.localeCompare(b.departureAt));
+  // Post-procesare: rută afișată, ocupare, link "+", curățare câmpuri interne.
+  const list = [...groups.values()]
+    .sort((a, b) => a.departureAt.localeCompare(b.departureAt))
+    .map((g) => {
+      const origins = [...g._origins];
+      const dests = [...g._dests];
+      g.from = joinCities(g._origins);
+      g.to = joinCities(g._dests);
+      g.multi = origins.length > 1 || dests.length > 1;
+      g.seatsTaken = [...g._memberSeats.values()].reduce((s, n) => s + n, 0);
 
-  // Sumar pe zile pentru calendar: câte curse are fiecare zi.
+      if (g.kind === "trip") {
+        const memberTripIds = [...g._memberSeats.keys()];
+        if (memberTripIds.length === 1) {
+          // O singură cursă fizică-rută → preselectăm exact cursa (sare la locuri).
+          g.add = {
+            tripId: memberTripIds[0],
+            from: [...g._originsFull][0],
+            to: [...g._destsFull][0],
+          };
+        } else if (dests.length === 1) {
+          // Inbound multi-îmbarcare: destinația e fixă, operatorul alege punctul.
+          g.add = { to: [...g._destsFull][0] };
+        } else if (origins.length === 1) {
+          // Outbound multi-coborâre: originea e fixă.
+          g.add = { from: [...g._originsFull][0] };
+        } else {
+          g.add = {};
+        }
+      }
+
+      // Nu serializăm seturile interne.
+      const { _origins, _dests, _originsFull, _destsFull, _memberSeats, ...pub } = g;
+      void _origins; void _dests; void _originsFull; void _destsFull; void _memberSeats;
+      return pub;
+    });
+
   const calendar: Record<string, number> = {};
   for (const g of list) calendar[g.dayKey] = (calendar[g.dayKey] ?? 0) + 1;
 

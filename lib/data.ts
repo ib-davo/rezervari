@@ -78,6 +78,7 @@ export const destinations: Destination[] = [
       { id: "g26", name: "Düsseldorf", slug: "dusseldorf" },
       { id: "g27", name: "Wuppertal", slug: "wuppertal" },
       { id: "g28", name: "Essen", slug: "essen" },
+      { id: "g31", name: "Dortmund", slug: "dortmund" },
       { id: "g29", name: "Münster", slug: "munster" },
       { id: "g30", name: "Osnabrück", slug: "osnabruck" },
     ],

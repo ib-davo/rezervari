@@ -1,23 +1,22 @@
-// Foaia de parcurs per cursă: export Excel (CSV) + PDF (HTML printabil).
-// Fără dependințe — CSV cu BOM (se deschide direct în Excel), PDF prin
-// fereastra de print a browserului (Salvează ca PDF).
+// Foaia de parcurs per CURSĂ FIZICĂ (un autobuz, o zi): export Excel (CSV) +
+// PDF (HTML printabil). Include TOȚI pasagerii din toate punctele de îmbarcare,
+// cu ruta fiecăruia — ca foaia reală dată șoferului. Fără dependințe.
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 
 export type TripGroup = {
   kind: "trip" | "loose";
   key: string;
-  tripId: string | null;
   busLabel: string | null;
   busPlate: string | null;
   from: string;
   to: string;
-  fromParam: string;
-  toParam: string;
   departureAt: string;
   arrivalAt: string | null;
   capacity: number | null;
   seatsTaken: number;
   dayKey: string;
+  multi: boolean;
+  add: { tripId?: string; from?: string; to?: string };
   bookings: OperatorBooking[];
 };
 
@@ -29,12 +28,16 @@ const dtFmt = new Intl.DateTimeFormat("ro-RO", {
 function curr(c: string) {
   return c === "GBP" ? "£" : c === "EUR" ? "€" : c;
 }
-function statusLabel(s: string) {
-  return s === "confirmed" ? "Confirmată" : s === "cancelled" ? "Anulată" : "În așteptare";
+function cityOnly(s: string): string {
+  return s.split(",")[0].trim();
 }
-function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
+function routeOf(b: OperatorBooking): string {
+  return `${cityOnly(b.departureCity)} → ${cityOnly(b.arrivalCity)}`;
+}
+function seatsFor(b: OperatorBooking): number[] {
+  // Locurile de pe cursa DUS a rezervării (returul are alt tripId).
   return (b.seatBookings || [])
-    .filter((s) => (g.tripId ? s.tripId === g.tripId : true))
+    .filter((s) => (b.tripId ? s.tripId === b.tripId : true))
     .map((s) => s.seatNumber);
 }
 function esc(s: string): string {
@@ -42,27 +45,24 @@ function esc(s: string): string {
 }
 
 function rows(g: TripGroup) {
-  // Rezervările anulate le lăsăm la final, în ordinea locului apoi a numelui.
   return [...g.bookings]
     .sort((a, b) => {
       const ca = a.status === "cancelled" ? 1 : 0;
       const cb = b.status === "cancelled" ? 1 : 0;
       if (ca !== cb) return ca - cb;
-      const sa = seatsFor(a, g)[0] ?? 999;
-      const sb = seatsFor(b, g)[0] ?? 999;
+      const sa = seatsFor(a)[0] ?? 999;
+      const sb = seatsFor(b)[0] ?? 999;
       return sa - sb;
     })
     .map((b, i) => ({
       idx: i + 1,
-      seats: seatsFor(b, g).join(", ") || "—",
+      seats: seatsFor(b).join(", ") || "—",
       name: `${b.firstName} ${b.lastName}`.trim(),
       phone: b.phone,
+      route: routeOf(b),
       nr: b.bookingNumber,
       pay: b.paymentStatus === "paid" ? "Achitat" : "Neachitat",
-      status: statusLabel(b.status),
       price: `${b.price}${curr(b.currency)}`,
-      priceNum: b.status === "cancelled" ? 0 : b.price,
-      currency: b.currency,
       cancelled: b.status === "cancelled",
     }));
 }
@@ -75,16 +75,10 @@ function totals(g: TripGroup) {
   const c = active[0] ? curr(active[0].currency) : "";
   return {
     pax: active.length,
-    paidCount: paid.length,
     sum: `${sum}${c}`,
     paidSum: `${paidSum}${c}`,
     dueSum: `${sum - paidSum}${c}`,
   };
-}
-
-function headerLine(g: TripGroup): string {
-  const bus = g.busLabel ? `${g.busLabel}${g.busPlate ? ` (${g.busPlate})` : ""}` : "Fără autocar atribuit";
-  return `${g.from} → ${g.to}`;
 }
 
 /** CSV pentru Excel (separator ; + BOM UTF-8). */
@@ -98,14 +92,14 @@ export function buildManifestCsv(g: TripGroup): string {
   };
   const line = (arr: (string | number)[]) => arr.map(cell).join(";");
   const out: string[] = [];
-  out.push(line([`Cursă: ${headerLine(g)}`]));
+  out.push(line([`Cursă: ${g.from} → ${g.to}`]));
   out.push(line([`Autocar: ${bus}`]));
   out.push(line([`Plecare: ${dep}`]));
   out.push(line([`Ocupare: ${g.seatsTaken}${g.capacity ? "/" + g.capacity : ""} locuri`]));
   out.push("");
-  out.push(line(["#", "Loc", "Pasager", "Telefon", "Nr rezervare", "Plată", "Status", "Preț"]));
+  out.push(line(["Nr d/o", "Loc", "Nume, prenume", "Nr telefon", "Ruta", "Nr rezervare", "Plată", "Preț"]));
   for (const r of rows(g)) {
-    out.push(line([r.idx, r.seats, r.name, r.phone, r.nr, r.pay, r.status, r.price]));
+    out.push(line([r.idx, r.seats, r.name, r.phone, r.route, r.nr, r.pay, r.price]));
   }
   out.push("");
   out.push(line([`Total pasageri: ${t.pax}`]));
@@ -124,41 +118,41 @@ export function buildManifestHtml(g: TripGroup): string {
       <td class="c seat">${esc(r.seats)}</td>
       <td>${esc(r.name)}</td>
       <td class="mono">${esc(r.phone)}</td>
+      <td>${esc(r.route)}</td>
       <td class="mono sm">${esc(r.nr)}</td>
       <td class="c ${r.pay === "Achitat" ? "ok" : "due"}">${r.pay}</td>
-      <td class="c">${esc(r.status)}</td>
       <td class="r">${esc(r.price)}</td>
     </tr>`).join("");
 
   return `<!DOCTYPE html>
 <html lang="ro"><head><meta charset="utf-8"/>
-<title>Foaie de parcurs · ${esc(headerLine(g))}</title>
+<title>Foaie de parcurs · ${esc(g.from)} → ${esc(g.to)}</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0b2653; margin: 24px; }
   .head { border-bottom: 3px solid #e11e2b; padding-bottom: 12px; margin-bottom: 16px; }
-  .route { font-size: 22px; font-weight: 800; }
+  .route { font-size: 21px; font-weight: 800; }
   .meta { color: #475569; font-size: 13px; margin-top: 4px; }
   .meta b { color: #0b2653; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { background: #0b2653; color: #fff; text-align: left; padding: 7px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
-  td { padding: 7px 8px; border-bottom: 1px solid #e5e9f0; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { background: #0b2653; color: #fff; text-align: left; padding: 6px 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .02em; }
+  td { padding: 6px 8px; border-bottom: 1px solid #e5e9f0; }
   .c { text-align: center; } .r { text-align: right; font-weight: 700; }
-  .mono { font-family: ui-monospace, Menlo, monospace; } .sm { font-size: 11px; color: #64748b; }
+  .mono { font-family: ui-monospace, Menlo, monospace; } .sm { font-size: 10.5px; color: #64748b; }
   .seat { font-weight: 700; } .ok { color: #059669; font-weight: 700; } .due { color: #e11e2b; font-weight: 700; }
   tr.cancelled td { color: #94a3b8; text-decoration: line-through; }
   .tot { margin-top: 14px; display: flex; gap: 24px; font-size: 14px; }
   .tot b { display: block; font-size: 18px; }
   .foot { margin-top: 20px; color: #94a3b8; font-size: 11px; }
-  @media print { body { margin: 12mm; } .noprint { display: none; } }
+  @media print { body { margin: 10mm; } @page { size: A4 landscape; } }
 </style></head>
 <body onload="setTimeout(function(){window.print()},250)">
   <div class="head">
     <div class="route">${esc(g.from)} → ${esc(g.to)}</div>
-    <div class="meta">🚌 <b>${esc(bus)}</b> · ${esc(dep)} · Ocupare <b>${g.seatsTaken}${g.capacity ? "/" + g.capacity : ""}</b></div>
+    <div class="meta">🚌 <b>${esc(bus)}</b> · ${esc(dep)} · Ocupare <b>${g.seatsTaken}${g.capacity ? "/" + g.capacity : ""}</b> · ${t.pax} pasageri</div>
   </div>
   <table>
-    <thead><tr><th>#</th><th>Loc</th><th>Pasager</th><th>Telefon</th><th>Nr</th><th>Plată</th><th>Status</th><th>Preț</th></tr></thead>
+    <thead><tr><th>#</th><th>Loc</th><th>Nume, prenume</th><th>Telefon</th><th>Ruta</th><th>Nr</th><th>Plată</th><th>Preț</th></tr></thead>
     <tbody>${body}</tbody>
   </table>
   <div class="tot">

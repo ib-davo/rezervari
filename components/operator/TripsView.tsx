@@ -61,12 +61,14 @@ function buildMonthGrid(view: Date): { date: Date; inMonth: boolean }[] {
   return cells;
 }
 
-// Locurile unei rezervări pe cursa DUS a grupului.
-function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
-  const tid = g.tripId;
+// Locurile unei rezervări pe cursa ei DUS (returul are alt tripId).
+function seatsFor(b: OperatorBooking): number[] {
   return (b.seatBookings || [])
-    .filter((s) => (tid ? s.tripId === tid : true))
+    .filter((s) => (b.tripId ? s.tripId === b.tripId : true))
     .map((s) => s.seatNumber);
+}
+function cityOnly(s: string): string {
+  return s.split(",")[0].trim();
 }
 
 export default function TripsView() {
@@ -371,11 +373,14 @@ function TripCard({ g, onAct, showDay }: {
   const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.bookings.length}`;
   const paidCount = g.bookings.filter((b) => b.paymentStatus === "paid").length;
 
-  // Link "+": cursă reală → tripId + rută (ca formularul să preselecteze cursa
-  // și să sară la alegerea locurilor); grup fără cursă → doar rută precompletată.
-  const addHref = g.tripId
-    ? `/panou/rezervare?tripId=${encodeURIComponent(g.tripId)}&from=${encodeURIComponent(g.fromParam)}&to=${encodeURIComponent(g.toParam)}`
-    : `/panou/rezervare?from=${encodeURIComponent(g.fromParam)}&to=${encodeURIComponent(g.toParam)}`;
+  // Link "+": endpoint-ul calculează cum se preselectează. O singură cursă-rută
+  // → tripId (sare la locuri). Cursă fizică cu mai multe puncte de îmbarcare →
+  // precompletăm doar capătul fix (destinația/originea), operatorul alege punctul.
+  const p = new URLSearchParams();
+  if (g.add.tripId) p.set("tripId", g.add.tripId);
+  if (g.add.from) p.set("from", g.add.from);
+  if (g.add.to) p.set("to", g.add.to);
+  const addHref = `/panou/rezervare${p.toString() ? `?${p.toString()}` : ""}`;
 
   const exportExcel = () => {
     const csv = buildManifestCsv(g);
@@ -444,16 +449,17 @@ function TripCard({ g, onAct, showDay }: {
       {/* Rezervări */}
       <div className="divide-y divide-[color:var(--ink-100)]">
         {g.bookings.map((b) => (
-          <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} onAct={onAct} />
+          <BookingRow key={b.id} b={b} seats={seatsFor(b)} showRoute={g.multi} onAct={onAct} />
         ))}
       </div>
     </div>
   );
 }
 
-function BookingRow({ b, seats, onAct }: {
+function BookingRow({ b, seats, showRoute, onAct }: {
   b: OperatorBooking;
   seats: number[];
+  showRoute: boolean;
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
@@ -482,6 +488,15 @@ function BookingRow({ b, seats, onAct }: {
               </span>
             )}
           </div>
+          {/* Ruta pasagerului — utilă doar când cursa are mai multe puncte de
+              îmbarcare (altfel e aceeași cu antetul cursei). */}
+          {showRoute && (
+            <div className="mt-0.5 flex items-center gap-1 text-[11px] font-semibold text-[color:var(--navy-700)]">
+              <span className="truncate">{cityOnly(b.departureCity)}</span>
+              <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--red-400)]" />
+              <span className="truncate">{cityOnly(b.arrivalCity)}</span>
+            </div>
+          )}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[color:var(--ink-500)]">
             <span className="font-mono">{b.bookingNumber}</span>
             <span>· {sourceLabel(b)}</span>
