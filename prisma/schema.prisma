@@ -202,6 +202,7 @@ model Booking {
   createdByName  String?                     // snapshot nume (afișat și pe davo, fără join)
   createdBy      Operator? @relation(fields: [createdById], references: [id])
   archivedAt     DateTime?                    // cursa a trecut → iese din panou, rămâne salvată
+  manualBusId    String?                     // Bus.id atribuit manual (panou operatori) când rezervarea n-are cursă cu autocar — o alătură foii fizice a autobuzului
 
   // relații noi, OPȚIONALE (pentru a nu sparge bookings existente)
   clientId       String?

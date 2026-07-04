@@ -6,6 +6,7 @@ import type { OperatorBooking } from "@/components/operator/BookingsView";
 export type TripGroup = {
   kind: "trip" | "loose";
   key: string;
+  busId: string | null;
   busLabel: string | null;
   busPlate: string | null;
   from: string;

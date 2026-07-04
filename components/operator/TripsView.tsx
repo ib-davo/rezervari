@@ -71,9 +71,12 @@ function cityOnly(s: string): string {
   return s.split(",")[0].trim();
 }
 
+type BusOption = { id: string; label: string; plate: string | null; totalSeats: number | null };
+
 export default function TripsView() {
   const [groups, setGroups] = useState<TripGroup[]>([]);
   const [calendar, setCalendar] = useState<Record<string, number>>({});
+  const [buses, setBuses] = useState<BusOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [q, setQ] = useState("");
@@ -97,6 +100,14 @@ export default function TripsView() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Lista autobuzelor pentru atribuirea manuală (o dată).
+  useEffect(() => {
+    fetch("/api/operator/buses")
+      .then((r) => r.json())
+      .then((d) => { if (d?.success) setBuses(d.buses); })
+      .catch(() => {});
   }, []);
 
   const scheduleReload = useCallback(() => {
@@ -339,7 +350,7 @@ export default function TripsView() {
       ) : (
         <div className="space-y-3">
           {visibleGroups.map((g) => (
-            <TripCard key={g.key} g={g} onAct={act} showDay={searching} />
+            <TripCard key={g.key} g={g} onAct={act} showDay={searching} buses={buses} />
           ))}
         </div>
       )}
@@ -364,10 +375,11 @@ function SkeletonTrips() {
   );
 }
 
-function TripCard({ g, onAct, showDay }: {
+function TripCard({ g, onAct, showDay, buses }: {
   g: TripGroup;
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
   showDay: boolean;
+  buses: BusOption[];
 }) {
   const dep = new Date(g.departureAt);
   const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.bookings.length}`;
@@ -449,23 +461,38 @@ function TripCard({ g, onAct, showDay }: {
       {/* Rezervări */}
       <div className="divide-y divide-[color:var(--ink-100)]">
         {g.bookings.map((b) => (
-          <BookingRow key={b.id} b={b} seats={seatsFor(b)} showRoute={g.multi} onAct={onAct} />
+          <BookingRow
+            key={b.id}
+            b={b}
+            seats={seatsFor(b)}
+            showRoute={g.multi}
+            canAssign={g.busId === null || !!b.manualBusId}
+            buses={buses}
+            onAct={onAct}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function BookingRow({ b, seats, showRoute, onAct }: {
+function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   b: OperatorBooking;
   seats: number[];
   showRoute: boolean;
+  canAssign: boolean;
+  buses: BusOption[];
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cancelled = b.status === "cancelled";
+  const assignBus = async (busId: string) => {
+    setBusy("bus");
+    await onAct(b.id, { manualBusId: busId || null });
+    setBusy(null);
+  };
 
   const run = async (label: string, patch: Record<string, unknown>) => {
     setBusy(label);
@@ -564,6 +591,31 @@ function BookingRow({ b, seats, showRoute, onAct }: {
           <RowBtn busy={busy === "archive"} onClick={() => run("archive", { archive: true })} className="border border-[color:var(--ink-200)] text-[color:var(--ink-500)]">
             <Archive className="h-3.5 w-3.5" /> Arhivează
           </RowBtn>
+
+          {/* Atribuire autobuz — doar la rezervările fără cursă cu autocar (sau
+              deja atribuite manual, ca să poți schimba/scoate). Alătură
+              rezervarea foii fizice a autobuzului ales. */}
+          {canAssign && buses.length > 0 && (
+            <label className="inline-flex items-center gap-1 rounded-full border border-[color:var(--navy-200,rgba(20,58,122,0.2))] bg-[color:var(--navy-50)] pl-2.5 pr-1 py-1 text-xs font-semibold text-[color:var(--navy-900)]">
+              <Bus className="h-3.5 w-3.5 text-[color:var(--red-500)]" />
+              {busy === "bus" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <select
+                  value={b.manualBusId ?? ""}
+                  onChange={(e) => assignBus(e.target.value)}
+                  className="max-w-[9rem] cursor-pointer truncate bg-transparent pr-1 text-xs font-semibold outline-none"
+                >
+                  <option value="">Atribuie autocar…</option>
+                  {buses.map((bus) => (
+                    <option key={bus.id} value={bus.id}>
+                      {bus.label}{bus.plate ? ` · ${bus.plate}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+          )}
         </div>
       )}
     </div>

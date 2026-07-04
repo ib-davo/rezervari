@@ -35,6 +35,7 @@ export type OperatorBooking = {
   archivedAt: string | null;
   tripId: string | null;
   returnTripId: string | null;
+  manualBusId: string | null;
   seatBookings: { seatNumber: number; tripId: string }[];
 };
 

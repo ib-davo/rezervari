@@ -27,6 +27,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.archive === true) data.archivedAt = new Date();
   if (body.archive === false) data.archivedAt = null;
 
+  // Atribuire autobuz manual (alătură rezervarea foii fizice a autobuzului).
+  // string = Bus.id, null = scoate atribuirea. Validăm că autobuzul există.
+  if (body.manualBusId === null) {
+    data.manualBusId = null;
+  } else if (typeof body.manualBusId === "string" && body.manualBusId.length > 0) {
+    const bus = await prisma.bus.findUnique({ where: { id: body.manualBusId }, select: { id: true } });
+    if (!bus) return NextResponse.json({ success: false, error: "Autocar inexistent" }, { status: 400 });
+    data.manualBusId = bus.id;
+  }
+
   const existing = await prisma.booking.findUnique({
     where: { id },
     select: { id: true, status: true, departureDate: true, returnDate: true, archivedAt: true },
