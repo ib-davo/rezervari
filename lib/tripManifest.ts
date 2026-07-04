@@ -1,6 +1,7 @@
 // Foaie de parcurs PDF (HTML printabil → Salvează ca PDF). Excelul (.xlsx real
 // stilizat) e generat pe server: /api/operator/manifest. Aici doar PDF-ul.
 import type { OperatorBooking } from "@/components/operator/BookingsView";
+import { computeManifest } from "@/lib/manifestRows";
 
 export type TripGroup = {
   kind: "trip" | "loose" | "empty";
@@ -25,43 +26,23 @@ const dtFmt = new Intl.DateTimeFormat("ro-RO", {
   weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
 });
 function cap(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
-function curr(c: string) { return c === "GBP" ? "£" : c === "EUR" ? "€" : c; }
-function cityOnly(s: string) { return s.split(",")[0].trim(); }
 function esc(s: string) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
-function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
-  return (b.seatBookings || []).filter((s) => g.tripIds.includes(s.tripId)).map((s) => s.seatNumber);
-}
 function paxWord(n: number) { return `${n} ${n === 1 ? "pasager" : "pasageri"}`; }
 
 export function buildManifestHtml(g: TripGroup): string {
-  const active = g.bookings.filter((b) => b.status !== "cancelled");
-  const rows = active
-    .map((b) => ({
-      seats: seatsFor(b, g),
-      name: `${b.firstName} ${b.lastName}`.trim(),
-      phone: b.phone,
-      route: `${cityOnly(b.departureCity)} → ${cityOnly(b.arrivalCity)}`,
-      paid: b.paymentStatus === "paid",
-      price: `${b.price}${curr(b.currency)}`,
-      priceNum: b.price,
-    }))
-    .sort((a, b) => (a.seats[0] ?? 999) - (b.seats[0] ?? 999));
-
-  const symbol = active[0] ? curr(active[0].currency) : "€";
-  const total = rows.reduce((s, r) => s + r.priceNum, 0);
-  const paidSum = rows.filter((r) => r.paid).reduce((s, r) => s + r.priceNum, 0);
+  const { rows, totalPax, total, paidSum, symbol } = computeManifest(g);
   const bus = g.busLabel ? `${g.busLabel}${g.busPlate ? ` · ${g.busPlate}` : ""}` : "Fără autocar atribuit";
   const dep = cap(dtFmt.format(new Date(g.departureAt)));
 
   const body = rows.map((r, i) => `
     <tr>
       <td class="c num">${i + 1}</td>
-      <td class="c seat">${esc(r.seats.join(", ") || "—")}</td>
+      <td class="c seat">${esc(r.seat)}</td>
       <td class="name">${esc(r.name)}</td>
       <td class="mono">${esc(r.phone)}</td>
       <td>${esc(r.route)}</td>
       <td class="c ${r.paid ? "ok" : "due"}">${r.paid ? "Achitat" : "Neachitat"}</td>
-      <td class="r price">${esc(r.price)}</td>
+      <td class="r price">${r.price}${symbol}</td>
       <td class="note"></td>
     </tr>`).join("");
 
@@ -107,8 +88,8 @@ export function buildManifestHtml(g: TripGroup): string {
   <div class="meta">
     <span>🚌 <b>${esc(bus)}</b></span>
     <span>${esc(dep)}</span>
-    <span><span class="pill">${paxWord(rows.length)}</span></span>
-    ${g.capacity ? `<span>Ocupare <b>${g.seatsTaken}/${g.capacity}</b></span>` : ""}
+    <span><span class="pill">${paxWord(totalPax)}</span></span>
+    ${g.capacity ? `<span>Ocupare <b>${totalPax}/${g.capacity}</b></span>` : ""}
     <span>Încasat <b style="color:#059669">${paidSum}${symbol}</b> · De încasat <b style="color:#e11e2b">${total - paidSum}${symbol}</b></span>
   </div>
   <table>

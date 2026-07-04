@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
-import { buildTripGroups, type BookingRow, type TripGroupData } from "@/lib/tripGrouping";
+import { buildTripGroups } from "@/lib/tripGrouping";
+import { computeManifest } from "@/lib/manifestRows";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,31 +11,6 @@ const NAVY = "FF0B2653";
 const RED = "FFE11E2B";
 const GREY = "FFF3F5F9";
 const WHITE = "FFFFFFFF";
-
-function curr(c: string) {
-  return c === "GBP" ? "£" : c === "EUR" ? "€" : c;
-}
-function cityOnly(s: string) {
-  return s.split(",")[0].trim();
-}
-function seatsFor(b: BookingRow, g: TripGroupData): number[] {
-  return (b.seatBookings || []).filter((s) => g.tripIds.includes(s.tripId)).map((s) => s.seatNumber);
-}
-
-function activeRows(g: TripGroupData) {
-  return g.bookings
-    .filter((b) => b.status !== "cancelled")
-    .map((b) => ({
-      seats: seatsFor(b, g),
-      name: `${b.firstName} ${b.lastName}`.trim(),
-      phone: b.phone,
-      route: `${cityOnly(b.departureCity)} → ${cityOnly(b.arrivalCity)}`,
-      paid: b.paymentStatus === "paid",
-      price: b.price,
-      currency: b.currency,
-    }))
-    .sort((a, b) => (a.seats[0] ?? 999) - (b.seats[0] ?? 999));
-}
 
 const dtFmt = new Intl.DateTimeFormat("ro-RO", {
   weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -50,10 +26,7 @@ export async function GET(req: NextRequest) {
   const g = groups.find((x) => x.key === key);
   if (!g) return NextResponse.json({ success: false, error: "Cursă negăsită" }, { status: 404 });
 
-  const rows = activeRows(g);
-  const symbol = rows[0] ? curr(rows[0].currency) : "€";
-  const total = rows.reduce((s, r) => s + r.price, 0);
-  const paidSum = rows.filter((r) => r.paid).reduce((s, r) => s + r.price, 0);
+  const { rows, totalPax, total, paidSum, symbol } = computeManifest(g);
   const bus = g.busLabel ? `${g.busLabel}${g.busPlate ? ` · ${g.busPlate}` : ""}` : "Fără autocar atribuit";
   const dep = cap(dtFmt.format(new Date(g.departureAt)));
 
@@ -95,7 +68,7 @@ export async function GET(req: NextRequest) {
   // Detalii cursă
   ws.mergeCells("A3:H3");
   const b3 = ws.getCell("A3");
-  b3.value = `${dep}     ·     Pasageri: ${rows.length}${g.capacity ? `  ·  Ocupare: ${g.seatsTaken}/${g.capacity}` : ""}     ·     Total: ${total} ${symbol}   (încasat ${paidSum} ${symbol})`;
+  b3.value = `${dep}     ·     Pasageri: ${totalPax}${g.capacity ? `  ·  Ocupare: ${totalPax}/${g.capacity}` : ""}     ·     Total: ${total} ${symbol}   (încasat ${paidSum} ${symbol})`;
   b3.font = { size: 11, color: { argb: "FF475569" } };
   ws.getRow(4).height = 6;
 
@@ -117,7 +90,7 @@ export async function GET(req: NextRequest) {
     const row = ws.getRow(6 + i);
     const cells = [
       i + 1,
-      r.seats.join(", ") || "—",
+      r.seat,
       r.name,
       r.phone,
       r.route,
@@ -147,7 +120,7 @@ export async function GET(req: NextRequest) {
   const totalRowIdx = 6 + rows.length + 1;
   ws.mergeCells(`A${totalRowIdx}:E${totalRowIdx}`);
   const tl = ws.getCell(`A${totalRowIdx}`);
-  tl.value = `TOTAL · ${rows.length} pasageri`;
+  tl.value = `TOTAL · ${totalPax} pasageri`;
   tl.font = { bold: true, size: 12, color: { argb: NAVY } };
   tl.alignment = { vertical: "middle", horizontal: "right" };
   const tp = ws.getCell(`G${totalRowIdx}`);

@@ -10,6 +10,7 @@ import {
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
+import { bookingPax } from "@/lib/manifestRows";
 
 const fmtTime = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" });
 const fmtDayLong = new Intl.DateTimeFormat("ro-RO", { weekday: "long", day: "numeric", month: "long" });
@@ -404,8 +405,12 @@ function TripCard({ g, onAct, showDay, buses }: {
   buses: BusOption[];
 }) {
   const dep = new Date(g.departureAt);
-  const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.bookings.length}`;
-  const paidCount = g.bookings.filter((b) => b.paymentStatus === "paid").length;
+  // Ocupare + „plătite" pe PASAGERI (locuri), nu pe rezervări (o rezervare poate
+  // avea mai multe locuri = mai mulți pasageri).
+  const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.seatsTaken}`;
+  const paidPax = g.bookings
+    .filter((b) => b.status !== "cancelled" && b.paymentStatus === "paid")
+    .reduce((s, b) => s + bookingPax(b, g.tripIds), 0);
 
   // Link "+": endpoint-ul calculează cum se preselectează cursa (tripId / capăt fix).
   const p = new URLSearchParams();
@@ -478,7 +483,7 @@ function TripCard({ g, onAct, showDay, buses }: {
             <div className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)]">
               <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
             </div>
-            <div className="mt-1 text-[10px] font-semibold text-[color:var(--ink-400)]">{paidCount} plătite</div>
+            <div className="mt-1 text-[10px] font-semibold text-[color:var(--ink-400)]">{paidPax} plătite</div>
           </div>
         </div>
 
