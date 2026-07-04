@@ -32,8 +32,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.manualBusId === null) {
     data.manualBusId = null;
   } else if (typeof body.manualBusId === "string" && body.manualBusId.length > 0) {
-    const bus = await prisma.bus.findUnique({ where: { id: body.manualBusId }, select: { id: true } });
-    if (!bus) return NextResponse.json({ success: false, error: "Autocar inexistent" }, { status: 400 });
+    const bus = await prisma.bus.findFirst({ where: { id: body.manualBusId, active: true }, select: { id: true } });
+    if (!bus) return NextResponse.json({ success: false, error: "Autocar inexistent sau inactiv" }, { status: 400 });
     data.manualBusId = bus.id;
   }
 

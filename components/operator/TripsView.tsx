@@ -61,10 +61,11 @@ function buildMonthGrid(view: Date): { date: Date; inMonth: boolean }[] {
   return cells;
 }
 
-// Locurile unei rezervări pe cursa ei DUS (returul are alt tripId).
-function seatsFor(b: OperatorBooking): number[] {
+// Locurile unei rezervări pe cursele acestui card (dus SAU retur, ambele în
+// g.tripIds ale cardului respectiv).
+function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
   return (b.seatBookings || [])
-    .filter((s) => (b.tripId ? s.tripId === b.tripId : true))
+    .filter((s) => g.tripIds.includes(s.tripId))
     .map((s) => s.seatNumber);
 }
 function cityOnly(s: string): string {
@@ -464,7 +465,7 @@ function TripCard({ g, onAct, showDay, buses }: {
           <BookingRow
             key={b.id}
             b={b}
-            seats={seatsFor(b)}
+            seats={seatsFor(b, g)}
             showRoute={g.multi}
             canAssign={g.busId === null || !!b.manualBusId}
             buses={buses}

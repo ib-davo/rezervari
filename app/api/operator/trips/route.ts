@@ -35,6 +35,8 @@ const BOOKING_SELECT = {
   seatBookings: { select: { seatNumber: true, tripId: true }, orderBy: { seatNumber: "asc" as const } },
 } as const;
 
+type BookingRow = Awaited<ReturnType<typeof loadBookings>>[number];
+
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -52,6 +54,25 @@ function joinCities(set: Set<string>, max = 2): string {
   const arr = [...set];
   if (arr.length <= max) return arr.join(", ");
   return `${arr.slice(0, max).join(", ")} +${arr.length - max}`;
+}
+function paxOf(b: BookingRow): number {
+  if (b.type === "parcel") return 1;
+  return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
+}
+
+async function loadBookings(now: Date) {
+  return prisma.booking.findMany({
+    where: {
+      archivedAt: null,
+      OR: [
+        { returnDate: { gte: now } },
+        { returnDate: null, departureDate: { gte: now } },
+      ],
+    },
+    select: BOOKING_SELECT,
+    orderBy: { departureDate: "asc" },
+    take: 2000,
+  });
 }
 
 type JourneyBus = { id: string; label: string; plate: string | null; totalSeats: number | null };
@@ -71,38 +92,31 @@ type Group = {
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string };
-  bookings: unknown[];
+  tripIds: string[];
+  bookings: BookingRow[];
   _origins: Set<string>;
   _dests: Set<string>;
   _originsFull: Set<string>;
   _destsFull: Set<string>;
-  _memberSeats: Map<string, number>;
+  _memberTrips: Set<string>;
 };
 
-// Vederea pe CURSE FIZICE: o cursă = un autobuz (real, din trip, SAU atribuit
-// manual) într-o zi, într-o direcție (spre / dinspre Moldova) — chiar dacă
-// trece prin mai multe țări (rute diferite în DB). Rezervările fără autobuz se
-// strâng într-un singur card „fără autocar" per zi + direcție.
+// Vederea pe CURSE FIZICE: o cursă = un autobuz (real din Trip.bus, SAU atribuit
+// manual via manualBusId) într-o zi. Rutele aceluiași autobuz în aceeași zi,
+// din țări diferite, sunt UNA singură. O rezervare dus-retur are DOUĂ leg-uri
+// (dus + retur) — fiecare pe altă zi/autobuz, deci în carduri diferite.
+// Rezervările fără autobuz se strâng într-un card „fără autocar" per zi + direcție.
 export async function GET(req: NextRequest) {
   const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
   const now = new Date();
+  const bookings = await loadBookings(now);
 
-  const bookings = await prisma.booking.findMany({
-    where: {
-      archivedAt: null,
-      OR: [
-        { returnDate: { gte: now } },
-        { returnDate: null, departureDate: { gte: now } },
-      ],
-    },
-    select: BOOKING_SELECT,
-    orderBy: { departureDate: "asc" },
-    take: 2000,
-  });
-
-  const tripIds = [...new Set(bookings.map((b) => b.tripId).filter((x): x is string => !!x))];
+  // Cursele referite de rezervări — DUS și RETUR.
+  const tripIds = [
+    ...new Set(bookings.flatMap((b) => [b.tripId, b.returnTripId]).filter((x): x is string => !!x)),
+  ];
   const trips = tripIds.length
     ? await prisma.trip.findMany({
         where: { id: { in: tripIds } },
@@ -118,13 +132,11 @@ export async function GET(req: NextRequest) {
               destinationCity: { select: { name: true, country: { select: { name: true } } } },
             },
           },
-          _count: { select: { seatBookings: true } },
         },
       })
     : [];
   const tripMap = new Map(trips.map((t) => [t.id, t]));
 
-  // Autobuze atribuite manual (pentru rezervări fără cursă cu autocar).
   const manualBusIds = [...new Set(bookings.map((b) => b.manualBusId).filter((x): x is string => !!x))];
   const manualBuses = manualBusIds.length
     ? await prisma.bus.findMany({ where: { id: { in: manualBusIds } }, select: { id: true, label: true, plate: true, totalSeats: true } })
@@ -133,18 +145,21 @@ export async function GET(req: NextRequest) {
 
   const groups = new Map<string, Group>();
 
-  for (const b of bookings) {
-    const trip = b.tripId ? tripMap.get(b.tripId) : null;
+  // Plasează un „leg" fizic al rezervării (dus SAU retur) în cardul cursei lui.
+  const placeLeg = (b: BookingRow, legKind: "dep" | "ret") => {
+    const legTripId = legKind === "dep" ? b.tripId : b.returnTripId;
+    const trip = legTripId ? tripMap.get(legTripId) ?? null : null;
+    // Legul de retur există fizic doar dacă are o cursă cunoscută.
+    if (legKind === "ret" && !trip) return;
 
-    // Autobuzul fizic al rezervării: cel din cursă, altfel cel atribuit manual.
+    // Autobuzul fizic al legului: cel din cursă, altfel (doar la dus) cel manual.
     let bus: JourneyBus | null = null;
     if (trip?.bus) bus = { id: trip.bus.id, label: trip.bus.label, plate: trip.bus.plate ?? null, totalSeats: trip.bus.totalSeats ?? null };
-    else if (b.manualBusId && busMap.has(b.manualBusId)) {
+    else if (legKind === "dep" && b.manualBusId && busMap.has(b.manualBusId)) {
       const mb = busMap.get(b.manualBusId)!;
       bus = { id: mb.id, label: mb.label, plate: mb.plate ?? null, totalSeats: mb.totalSeats ?? null };
     }
 
-    // Rută + direcție: din cursă dacă există, altfel din câmpurile rezervării.
     const oName = trip?.route?.originCity?.name ?? b.departureCity;
     const dName = trip?.route?.destinationCity?.name ?? b.arrivalCity;
     const oCountry = trip?.route?.originCity?.country?.name ?? countryOf(b.departureCity);
@@ -153,8 +168,11 @@ export async function GET(req: NextRequest) {
 
     const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
     const departureIso = trip ? trip.departureAt.toISOString() : b.departureDate.toISOString();
-    const busKey = bus?.id ?? "none";
-    const key = `${dk}:${direction}:${busKey}`;
+    // Cheia: un autobuz într-o zi = o cursă (direcția NU intră în cheie — un
+    // autobuz face o singură direcție pe zi; astfel atribuirea manuală se
+    // contopește cu cursa reală chiar dacă orașul rezervării n-are țară). Fără
+    // autobuz → grupăm pe zi + direcție ca să nu amestecăm sensuri opuse.
+    const key = bus ? `${dk}:bus:${bus.id}` : `${dk}:none:${direction}`;
 
     let g = groups.get(key);
     if (!g) {
@@ -173,12 +191,13 @@ export async function GET(req: NextRequest) {
         dayKey: dk,
         multi: false,
         add: {},
+        tripIds: [],
         bookings: [],
         _origins: new Set(),
         _dests: new Set(),
         _originsFull: new Set(),
         _destsFull: new Set(),
-        _memberSeats: new Map(),
+        _memberTrips: new Set(),
       };
       groups.set(key, g);
     }
@@ -187,11 +206,15 @@ export async function GET(req: NextRequest) {
     g._dests.add(dName);
     g._originsFull.add(withCountry(oName, oCountry));
     g._destsFull.add(withCountry(dName, dCountry));
-    // Ocupare fizică = suma locurilor pe leg-urile reale (dedup pe tripId).
-    if (trip) g._memberSeats.set(trip.id, trip._count.seatBookings);
+    if (trip) g._memberTrips.add(trip.id);
     if (departureIso < g.departureAt) g.departureAt = departureIso;
     if (!g.capacity && (bus?.totalSeats || trip?.capacity)) g.capacity = bus?.totalSeats ?? trip?.capacity ?? null;
     g.bookings.push(b);
+  };
+
+  for (const b of bookings) {
+    placeLeg(b, "dep");
+    placeLeg(b, "ret");
   }
 
   const list = [...groups.values()]
@@ -202,11 +225,18 @@ export async function GET(req: NextRequest) {
       g.from = joinCities(g._origins);
       g.to = joinCities(g._dests);
       g.multi = origins.length > 1 || dests.length > 1;
-      g.seatsTaken = [...g._memberSeats.values()].reduce((s, n) => s + n, 0);
+      g.tripIds = [...g._memberTrips];
 
-      // Link "+": preselectăm cursa dacă e una singură; altfel precompletăm
-      // capătul fix (destinația pentru inbound, originea pentru outbound).
-      const memberTripIds = [...g._memberSeats.keys()];
+      // Ocupare = din pasagerii CHIAR listați (nu contorul global al cursei,
+      // care ar include rezervări arhivate/holds). Fiecare rezervare contribuie
+      // cu locurile ei pe cursele acestui card; dacă n-are locuri (loose/manual)
+      // → cu numărul ei de pasageri.
+      g.seatsTaken = g.bookings.reduce((sum, b) => {
+        const seats = (b.seatBookings || []).filter((s) => g._memberTrips.has(s.tripId)).length;
+        return sum + (seats > 0 ? seats : paxOf(b));
+      }, 0);
+
+      const memberTripIds = g.tripIds;
       if (memberTripIds.length === 1 && origins.length === 1 && dests.length === 1) {
         g.add = { tripId: memberTripIds[0], from: [...g._originsFull][0], to: [...g._destsFull][0] };
       } else if (dests.length === 1) {
@@ -217,8 +247,8 @@ export async function GET(req: NextRequest) {
         g.add = {};
       }
 
-      const { _origins, _dests, _originsFull, _destsFull, _memberSeats, ...pub } = g;
-      void _origins; void _dests; void _originsFull; void _destsFull; void _memberSeats;
+      const { _origins, _dests, _originsFull, _destsFull, _memberTrips, ...pub } = g;
+      void _origins; void _dests; void _originsFull; void _destsFull; void _memberTrips;
       return pub;
     });
 

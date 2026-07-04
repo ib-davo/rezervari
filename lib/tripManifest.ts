@@ -18,6 +18,7 @@ export type TripGroup = {
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string };
+  tripIds: string[];
   bookings: OperatorBooking[];
 };
 
@@ -35,10 +36,11 @@ function cityOnly(s: string): string {
 function routeOf(b: OperatorBooking): string {
   return `${cityOnly(b.departureCity)} → ${cityOnly(b.arrivalCity)}`;
 }
-function seatsFor(b: OperatorBooking): number[] {
-  // Locurile de pe cursa DUS a rezervării (returul are alt tripId).
+function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
+  // Locurile rezervării pe cursele acestui card (dus SAU retur — cardul de
+  // retur are alt tripId, ambele sunt în g.tripIds ale cardului respectiv).
   return (b.seatBookings || [])
-    .filter((s) => (b.tripId ? s.tripId === b.tripId : true))
+    .filter((s) => g.tripIds.includes(s.tripId))
     .map((s) => s.seatNumber);
 }
 function esc(s: string): string {
@@ -51,13 +53,13 @@ function rows(g: TripGroup) {
       const ca = a.status === "cancelled" ? 1 : 0;
       const cb = b.status === "cancelled" ? 1 : 0;
       if (ca !== cb) return ca - cb;
-      const sa = seatsFor(a)[0] ?? 999;
-      const sb = seatsFor(b)[0] ?? 999;
+      const sa = seatsFor(a, g)[0] ?? 999;
+      const sb = seatsFor(b, g)[0] ?? 999;
       return sa - sb;
     })
     .map((b, i) => ({
       idx: i + 1,
-      seats: seatsFor(b).join(", ") || "—",
+      seats: seatsFor(b, g).join(", ") || "—",
       name: `${b.firstName} ${b.lastName}`.trim(),
       phone: b.phone,
       route: routeOf(b),
