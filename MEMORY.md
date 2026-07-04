@@ -147,6 +147,13 @@ Secretele reale sunt în `.env.local` și `.env` (NU în acest doc). Conțin: `D
 
 ---
 
+## 7bis. DEPLOY LIVE (4 iulie 2026)
+
+- **Panou operatori LIVE: https://davo-operatori.vercel.app** (proiect Vercel `xdmy1s-projects/davo-operatori`, prj_Ezr7G7EnedvGjiRGHDTX4kd5WYXw). Toate env-urile din `.env.local` setate în Vercel (production), inclusiv `OPERATOR_PINS`. Deployment Protection (SSO) DEZACTIVAT via API (`ssoProtection: null`) ca operatorii să poată intra — aplicația are auth-ul ei cu PIN prin proxy.ts. Verificat: login, /trips, /buses merg pe prod.
+- **davo.md redeployat** (proiect `davo-qv2s`, prin git push pe github.com/xdmy1/davo) — are etichetele de admin (`source='admin'`) + coloana `manualBusId` în schema/client. Schema davo acum comisă cu toate câmpurile operator-panel (erau necomise).
+- Deploy davo-operatori: CLI-ul vechi (44) nu mergea → `npx vercel@latest --prod --yes`. La update-uri viitoare: fie `npx vercel@latest --prod`, fie conectează repo-ul `ib-davo/rezervari` la proiectul Vercel pt. auto-deploy pe push.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY` = încă placeholder în Vercel → realtime pe polling 15s. Pune cheia reală în Vercel env + redeploy pt. „Live".
+
 ## 7. Rulare / build / deploy
 
 ```bash
