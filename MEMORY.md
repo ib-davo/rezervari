@@ -172,6 +172,14 @@ Userul a definit programul săptămânal al celor 3 autobuze. Aplicat în COD (n
 
 ⚠️ **PRESUPUNERI făcute (userul n-a apucat să confirme — de verificat):** (1) DAW 777 doar weekendul 10–12 iul; (2) Belgia deservită AMBELE zile (joi+vineri); (3) Liège doar vineri (ZNQ 874); (4) retururi: zi liberă, mapate DOAR după țara de origine; (5) implementat în cod, fără scriere în DB. Dacă vreuna e greșită → schimbă `scheduleForDay`/`scheduledPlateForTrip` în `lib/busSchedule.ts`.
 
+## 7quinquies. Runda 9 (7 iul 2026) — Schimbă autocarul (în proiectul davo, LIVE pe davo.md)
+
+Feature în `~/testing api/davo-website` (adminul davo.md, nu panoul operatorilor):
+- **`POST /api/admin/trips/[id]/change-bus`** `{busId, notify}`: schimbă autobuzul cursei, **remapează locurile** (păstrează același număr dacă există pe noul autobuz, altfel unul liber la întâmplare; dedup pe `[tripId,seatNumber]` prin delete+recreate în tranzacție), actualizează `capacity`. Dacă `notify` → **email către toți pasagerii** cu locul nou + scuze dacă s-a schimbat (template `busChangeHtml` în `lib/emailTemplates.ts`, brand DAVO), log în `EmailLog`. Fallback: dacă nu-s destule locuri → cei rămași fără loc, emailul zice „va fi comunicat".
+- **UI**: `app/(admin)/admin/trips/page.tsx` → modalul manifest (click pe o cursă) → secțiune „Schimbă autocarul": dropdown autobuz + checkbox „Anunță pasagerii" + buton (cu confirm).
+- Verificat: algoritm remapare (unit, toate scenariile), typecheck davo curat, deploy davo Ready. NU testat cu email real (producție, clienți reali) — userul face primul test din admin.
+- ⚠️ Endpoint-ul NU se declanșează automat — doar la apăsarea butonului. Recomandat: prima dată testează cu „Anunță" DEBIFAT (verifici remaparea), apoi cu email pe o cursă reală.
+
 ## 7. Rulare / build / deploy
 
 ```bash
