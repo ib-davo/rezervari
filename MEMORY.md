@@ -162,6 +162,16 @@ Secretele reale sunt în `.env.local` și `.env` (NU în acest doc). Conțin: `D
 - **Redeployat** pe davo-operatori.vercel.app (`npx vercel@latest --prod`; CLI-ul global e vechi). Verificat pe prod: 66 grupuri (62 goale), xlsx 200.
 - `exceljs` adăugat în dependencies.
 
+## 7quater. Runda 8 (7 iul 2026) — PROGRAM FIX autobuze (`lib/busSchedule.ts`)
+
+Userul a definit programul săptămânal al celor 3 autobuze. Aplicat în COD (nu în DB) prin override în `lib/tripGrouping.ts` — gruparea pune autobuzul corect după zi+țară, iar cardurile goale se generează din program.
+- **DUS (Moldova→Europa):** JOI → **DAW 077** (Anglia+Luxemburg+Belgia, fără Liège); VINERI → **ZNQ 874** (Belgia+Olanda+Germania); excepție **10 iul → DAW 777**.
+- **RETUR (tur-retur, același autobuz):** după țara de origine — BE/OL/DE → ZNQ 874, Anglia/Lux → DAW 077; excepție **12 iul → DAW 777**. Se aplică și rezervărilor loose (după „Oraș, Țară").
+- Cardurile goale (kind:empty) generate pt. fiecare joi/vineri din program: „Chișinău → Anglia, Luxemburg, Belgia" + „+ Rezervare pe cursă". DB-ul deja generează cursele DUS pe joi (166)/vineri (360), retur duminică — deci coerent cap-coadă.
+- Plăcuțe DB exacte: `DAW 077`, `DAW 777` (Astromega 89 locuri), `ZNQ 874` (51 locuri).
+
+⚠️ **PRESUPUNERI făcute (userul n-a apucat să confirme — de verificat):** (1) DAW 777 doar weekendul 10–12 iul; (2) Belgia deservită AMBELE zile (joi+vineri); (3) Liège doar vineri (ZNQ 874); (4) retururi: zi liberă, mapate DOAR după țara de origine; (5) implementat în cod, fără scriere în DB. Dacă vreuna e greșită → schimbă `scheduleForDay`/`scheduledPlateForTrip` în `lib/busSchedule.ts`.
+
 ## 7. Rulare / build / deploy
 
 ```bash
