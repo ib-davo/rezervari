@@ -430,11 +430,20 @@ function TripCard({ g, onAct, showDay, buses }: {
             <span className="truncate">{g.busLabel || "Autocar programat"}</span>
             {g.busPlate && <span>· {g.busPlate}</span>}
           </div>
-          <div className="mt-0.5 text-sm font-bold text-[color:var(--navy-900)]">
-            Autocar programat · <span className="text-[color:var(--ink-500)]">fără rezervări</span>
-          </div>
+          {g.to ? (
+            <div className="mt-0.5 flex items-center gap-1.5 text-sm font-bold text-[color:var(--navy-900)]">
+              <span className="truncate">{g.from}</span>
+              <ArrowRight className="h-4 w-4 shrink-0 text-[color:var(--ink-400)]" />
+              <span className="truncate">{g.to}</span>
+            </div>
+          ) : (
+            <div className="mt-0.5 text-sm font-bold text-[color:var(--navy-900)]">
+              Autocar programat · <span className="text-[color:var(--ink-500)]">fără rezervări</span>
+            </div>
+          )}
           <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-400)]">
             {showDay && <>{cap(fmtDayLong.format(dep))} · </>}{fmtTime.format(dep)}
+            {" · fără rezervări"}
             {g.capacity ? ` · ${g.capacity} locuri libere` : ""}
           </div>
         </div>
