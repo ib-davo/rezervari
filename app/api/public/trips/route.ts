@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { arrivalFor, nextDepartures } from "@/lib/schedule";
+import { busPlateForCountry } from "@/lib/busSchedule";
 
 const HORIZON_WEEKS = 16;
 const DEFAULT_LIMIT = 30;
@@ -61,8 +62,9 @@ async function ensureTripsForSchedule(params: {
   time: string;
   durationHours: number;
   from: Date;
+  plate?: string;
 }): Promise<void> {
-  const { routeId, weekday, time, durationHours, from } = params;
+  const { routeId, weekday, time, durationHours, from, plate } = params;
 
   // Calculăm primele HORIZON_WEEKS ocurențe ale (weekday + time) după `from`.
   const expected = nextDepartures(weekday, time, HORIZON_WEEKS, from);
@@ -80,13 +82,13 @@ async function ensureTripsForSchedule(params: {
   const missing = expected.filter((d) => !existingTimes.has(d.getTime()));
   if (missing.length === 0) return;
 
-  // Avem nevoie de un autocar activ ca să atașăm capacitate. Folosim primul
-  // (cel mai vechi) — consistent cu generatorul vechi.
-  const bus = await prisma.bus.findFirst({
-    where: { active: true },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, totalSeats: true },
-  });
+  // Autocarul cursei = cel din REGULA recurentă (după țară), ca cursele create
+  // lazy să aibă autobuzul corect din start. Fallback pe primul activ.
+  const bus =
+    (plate
+      ? await prisma.bus.findFirst({ where: { plate, active: true }, select: { id: true, totalSeats: true } })
+      : null) ??
+    (await prisma.bus.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" }, select: { id: true, totalSeats: true } }));
   if (!bus) return; // fără autocar configurat, nu putem oferi rezervări
 
   // createMany nu suportă skipDuplicates fără unique constraint, dar `missing`
@@ -215,6 +217,7 @@ export async function GET(req: NextRequest) {
         time,
         durationHours: duration,
         from: dateRange.gte,
+        plate: busPlateForCountry(foreignCountry.name) ?? undefined,
       });
     }
 

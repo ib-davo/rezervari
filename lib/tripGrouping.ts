@@ -2,6 +2,7 @@
 // sau atribuit manual — într-o zi). Folosită de /api/operator/trips (dashboard)
 // și de /api/operator/manifest (export Excel/PDF), ca să fie o singură sursă.
 import { prisma } from "@/lib/prisma";
+import { busPlateForRun, scheduledRunsForDate } from "@/lib/busSchedule";
 
 export const BOOKING_SELECT = {
   id: true,
@@ -146,32 +147,14 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     : [];
   const busMap = new Map(manualBuses.map((b) => [b.id, b]));
 
-  // Toate cursele viitoare (o singură dată) — sursă unică pentru: (a) legarea
-  // rezervărilor loose (fără cursă în DB) de cursa fizică după zi+direcție+țară,
-  // (b) cardurile goale. Reflectă orice schimbare de autobuz din admin.
-  const horizon = new Date(now.getTime() + 16 * 7 * 24 * 3600 * 1000);
-  const scheduled = await prisma.trip.findMany({
-    where: { departureAt: { gte: now, lte: horizon }, status: { in: ["scheduled", "boarding"] } },
-    select: {
-      departureAt: true,
-      capacity: true,
-      bus: { select: { id: true, label: true, plate: true, totalSeats: true } },
-      route: { select: { originCity: { select: { country: { select: { name: true } } } }, destinationCity: { select: { country: { select: { name: true } } } } } },
-    },
-    take: 5000,
+  // REGULĂ RECURENTĂ (nu materializăm mii de curse): autobuzele active + programul
+  // pe țări. Din ele construim calendarul VIRTUAL pe tot anul și legăm rezervările
+  // loose de autobuzul corect. Cursele reale se creează lazy la rezervare.
+  const allBuses = await prisma.bus.findMany({ where: { active: true }, select: { id: true, label: true, plate: true, totalSeats: true } });
+  const busByPlate = new Map(allBuses.map((b) => [b.plate, b]));
+  const countrySchedule = await prisma.country.findMany({
+    select: { name: true, outboundWeekday: true, outboundTime: true, returnWeekday: true, returnTime: true },
   });
-  // Lookup: `zi|direcție|țară non-MD` → autobuzul cursei fizice din DB.
-  const runBusByKey = new Map<string, JourneyBus>();
-  for (const t of scheduled) {
-    if (!t.bus) continue;
-    const oC = t.route?.originCity?.country?.name ?? "";
-    const dC = t.route?.destinationCity?.country?.name ?? "";
-    const inbound = isMD(dC);
-    const country = (inbound ? oC : dC).trim().toLowerCase();
-    if (!country) continue;
-    const k = `${dayKey(t.departureAt)}|${inbound ? 1 : 0}|${country}`;
-    if (!runBusByKey.has(k)) runBusByKey.set(k, { id: t.bus.id, label: t.bus.label, plate: t.bus.plate ?? null, totalSeats: t.bus.totalSeats ?? null });
-  }
 
   const groups = new Map<string, Group>();
 
@@ -195,13 +178,12 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
 
     const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
 
-    // Rezervare loose (fără cursă în DB): leag-o de cursa fizică (autobuzul DB)
-    // după zi + direcție + țara non-MD, ca să se grupeze cu run-ul, nu separat.
+    // Rezervare loose (fără cursă în DB): leag-o de cursa fizică după regula
+    // recurentă (țara non-MD → autobuz), ca să se grupeze cu run-ul, nu separat.
     if (!bus) {
-      const inbound = isMD(dCountry);
-      const country = (inbound ? oCountry : dCountry).trim().toLowerCase();
-      const rb = country ? runBusByKey.get(`${dk}|${inbound ? 1 : 0}|${country}`) : undefined;
-      if (rb) bus = rb;
+      const plate = busPlateForRun(oCountry, dCountry);
+      const rb = plate ? busByPlate.get(plate) : undefined;
+      if (rb) bus = { id: rb.id, label: rb.label, plate: rb.plate ?? null, totalSeats: rb.totalSeats ?? null };
     }
 
     const departureIso = trip ? trip.departureAt.toISOString() : b.departureDate.toISOString();
@@ -290,47 +272,47 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
   const calendar: Record<string, number> = {};
   for (const g of list) calendar[g.dayKey] = (calendar[g.dayKey] ?? 0) + 1;
 
-  // Curse PROGRAMATE GOALE — din DB (sursa unică): cursele viitoare fără
-  // rezervări, grupate pe cursă fizică (zi + autobuz), afișate pe ȚARĂ. Reflectă
-  // orice schimbare de autobuz făcută din admin.
+  // Curse PROGRAMATE GOALE — VIRTUALE, pe TOT ANUL, din regula recurentă (program
+  // pe țări + autobuz per țară). NU materializăm nimic: cursa reală se creează
+  // lazy când cineva rezervă. Zilele cu rezervări pe același autobuz NU primesc
+  // card gol (cheie identică → sar).
   const existingKeys = new Set(list.map((g) => g.key));
   const scheduledDaysSet = new Set<string>();
-  type Empty = { dk: string; iso: string; bus: NonNullable<(typeof scheduled)[number]["bus"]>; oCountries: Set<string>; dCountries: Set<string>; cap: number | null };
-  const emptyByKey = new Map<string, Empty>();
-  for (const t of scheduled) {
-    if (!t.bus) continue;
-    const dk = dayKey(t.departureAt);
-    scheduledDaysSet.add(dk);
-    const key = `${dk}:bus:${t.bus.id}`;
-    if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
-    const iso = t.departureAt.toISOString();
-    const oC = t.route?.originCity?.country?.name ?? "";
-    const dC = t.route?.destinationCity?.country?.name ?? "";
-    let e = emptyByKey.get(key);
-    if (!e) { e = { dk, iso, bus: t.bus, oCountries: new Set(), dCountries: new Set(), cap: t.bus.totalSeats ?? t.capacity ?? null }; emptyByKey.set(key, e); }
-    if (iso < e.iso) e.iso = iso;
-    if (oC) e.oCountries.add(oC);
-    if (dC) e.dCountries.add(dC);
-  }
-  for (const [key, e] of emptyByKey) {
-    list.push({
-      kind: "empty",
-      key,
-      busId: e.bus.id,
-      busLabel: e.bus.label,
-      busPlate: e.bus.plate ?? null,
-      from: joinCountries(e.oCountries),
-      to: joinCountries(e.dCountries),
-      departureAt: e.iso,
-      arrivalAt: null,
-      capacity: e.cap,
-      seatsTaken: 0,
-      dayKey: e.dk,
-      multi: false,
-      add: {},
-      tripIds: [],
-      bookings: [],
-    });
+  const YEAR_DAYS = 366;
+  for (let i = 0; i < YEAR_DAYS; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const runs = scheduledRunsForDate(d, countrySchedule);
+    if (runs.length === 0) continue;
+    const dk = dayKey(d);
+    for (const run of runs) {
+      const bus = busByPlate.get(run.plate);
+      if (!bus) continue;
+      scheduledDaysSet.add(dk);
+      const key = `${dk}:bus:${bus.id}`;
+      if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
+      existingKeys.add(key);
+      const countriesStr = [...new Set(run.countries)].sort((a, b) => a.localeCompare(b, "ro")).join(", ");
+      const [hh, mm] = (run.time || "12:00").split(":").map((n) => Number(n) || 0);
+      const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm).toISOString();
+      list.push({
+        kind: "empty",
+        key,
+        busId: bus.id,
+        busLabel: bus.label,
+        busPlate: bus.plate ?? null,
+        from: run.inbound ? countriesStr : "Chișinău",
+        to: run.inbound ? "Chișinău" : countriesStr,
+        departureAt: iso,
+        arrivalAt: null,
+        capacity: bus.totalSeats ?? null,
+        seatsTaken: 0,
+        dayKey: dk,
+        multi: false,
+        add: {},
+        tripIds: [],
+        bookings: [],
+      });
+    }
   }
   list.sort((a, b) => a.departureAt.localeCompare(b.departureAt));
 
