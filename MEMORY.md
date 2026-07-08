@@ -189,6 +189,14 @@ Userul: „totul sincronizat, DB-driven, cursă = per autocar + per dată + per 
 - **Sincronizare**: admin schimbă autobuz → scrie DB → apare instant pe panou (ambele citesc `trip.bus`). Change-bus e pe tot run-ul (vezi runda 9).
 - ⚠️ De verificat vizual adminul davo.md (n-am putut testa cu sesiune admin). ⚠️ Generatorul de curse (`tripGenerator`) încă pune bus default — cursele noi generate pe viitor vor trebui re-aliniate (sau fă generatorul schedule-aware).
 
+## 7septies. Runda 11 (8 iul 2026) — 3 cereri noi
+
+**C. Preț manual pe rezervare (panou) — FĂCUT + LIVE.** `components/booking/BookingForm.tsx` (doar `embedded`): câmp „Preț manual" în pasul Plată care suprascrie totalul. `app/api/bookings/route.ts`: operator autentificat → `body.customPrice` suprascrie prețul; publicul ignorat (endpoint oricum operator-only, 401). Verificat: operator customPrice=7→preț 7; public→401.
+
+**B. Curse pe 1 an ca program RECURENT — ÎN AȘTEPTARE (decizie arhitectură).** Userul vrea o regulă care se repetă (calendarul arată tot anul), NU ~6000 rânduri materializate. Generatorul actual (`lib/tripGenerator.ts`, max 52 săpt) materializează cu bus default. Opțiuni: (1) regulă recurentă + materializare lazy la rezervare (recomandat, refacere); (2) materializează 1 an + auto-extindere. Am întrebat, userul plecat — NU am construit. De confirmat înainte.
+
+**A. Stocare + unificare clienți davo + colete.vercel.app — ULTERIOR** (userul a zis „ulterior"). davo are deja `admin/clients`. `colete.vercel.app` = proiect separat de colete.
+
 ## 7. Rulare / build / deploy
 
 ```bash
