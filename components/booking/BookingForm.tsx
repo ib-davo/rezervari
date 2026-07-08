@@ -20,6 +20,7 @@ import {
   Mail,
   Phone,
   Info,
+  Search,
 } from "lucide-react";
 import { destinations, moldovanCities, contactInfo } from "@/lib/data";
 import { CountryCityPicker, complementHide, getCountryFromValue } from "@/components/booking/CountryCityPicker";
@@ -621,6 +622,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           passengers={passengers}
                           extra={extraPassengers}
                           onExtraChange={setExtraPassengers}
+                          embedded={embedded}
                         />
                       )}
 
@@ -930,18 +932,81 @@ function DirectionStep({
   );
 }
 
+// Autocomplete clienți (doar operator): scrii 2-3 litere din nume / telefon /
+// email → apar clienții existenți din evidență → îi alegi și se completează.
+type ClientHit = { id: string; firstName: string; lastName: string; email: string; phone: string; vip: boolean };
+function ClientSearch({ onPick }: { onPick: (c: { firstName: string; lastName: string; email: string; phone: string }) => void }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<ClientHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    const t = setTimeout(() => {
+      fetch(`/api/operator/clients?q=${encodeURIComponent(q.trim())}`)
+        .then((r) => r.json())
+        .then((d) => { setResults(d.clients || []); setOpen(true); })
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  return (
+    <div className="relative mb-4">
+      <SimpleField label="Caută client existent" icon={<Search className="h-4 w-4" />}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="scrie 2-3 litere din nume / telefon…"
+          className="simple-input"
+        />
+      </SimpleField>
+      {open && q.trim().length >= 2 && (
+        <div className="absolute z-30 mt-1 w-full overflow-auto rounded-xl border border-[color:var(--ink-200)] bg-white shadow-lg" style={{ maxHeight: 260 }}>
+          {loading && results.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-[color:var(--ink-500)]">Caut…</div>
+          ) : results.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-[color:var(--ink-500)]">Niciun client — se salvează automat la rezervare.</div>
+          ) : (
+            results.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { onPick({ firstName: c.firstName, lastName: c.lastName, email: c.email, phone: c.phone }); setQ(`${c.firstName} ${c.lastName}`); setOpen(false); }}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[color:var(--ink-50)]"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-semibold text-[color:var(--navy-900)]">{c.firstName} {c.lastName}{c.vip ? " ⭐" : ""}</span>
+                  <span className="block truncate text-xs text-[color:var(--ink-500)]">{c.phone}{c.email ? ` · ${c.email}` : ""}</span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PersonalForm({
   person,
   onChange,
   passengers,
   extra,
   onExtraChange,
+  embedded = false,
 }: {
   person: { firstName: string; lastName: string; email: string; phone: string; passport: string; note: string };
   onChange: (p: typeof person) => void;
   passengers: number;
   extra: PassengerName[];
   onExtraChange: (next: PassengerName[]) => void;
+  embedded?: boolean;
 }) {
   const setField = (k: keyof typeof person, v: string) => onChange({ ...person, [k]: v });
   const setExtraField = (i: number, k: keyof PassengerName, v: string) => {
@@ -964,6 +1029,7 @@ function PersonalForm({
         <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[color:var(--navy-700)] mb-3">
           Pasagerul 1 {passengers > 1 ? "(contact principal)" : ""}
         </div>
+        {embedded && <ClientSearch onPick={(c) => onChange({ ...person, ...c })} />}
         <div className="grid md:grid-cols-2 gap-4">
           <SimpleField label="Nume *" icon={<User className="h-4 w-4" />}>
             <input
