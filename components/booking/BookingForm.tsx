@@ -122,6 +122,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [payMethod, setPayMethod] = useState<"card" | "cash">("card");
+  // Preț manual (doar operator/embedded) — suprascrie totalul calculat.
+  const [customPrice, setCustomPrice] = useState<string>("");
 
   const [person, setPerson] = useState({
     firstName: "",
@@ -319,7 +321,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const hasPriceBasis = mode === "colet"
     ? (parseFloat(parcel.weight) || 0) > 0
     : Boolean(outboundTripInfo || matchedCountry);
-  const displayTotal = hasPriceBasis ? `${total}${currency}` : null;
+  // Total efectiv: prețul manual al operatorului (embedded) suprascrie calculul.
+  const hasCustomPrice = embedded && customPrice.trim() !== "" && Number.isFinite(parseFloat(customPrice));
+  const effectiveTotal = hasCustomPrice ? Math.round(parseFloat(customPrice)) : total;
+  const displayTotal = hasPriceBasis || hasCustomPrice ? `${effectiveTotal}${currency}` : null;
 
   if (result) {
     if (embedded) {
@@ -448,6 +453,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               returnTripId: trip === "return" ? returnTripId || undefined : undefined,
               returnSeatNumbers: trip === "return" ? returnSeats : undefined,
               payMethod,
+              customPrice: hasCustomPrice ? customPrice : undefined,
             }
           : {
               type: "parcel",
@@ -484,6 +490,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                 .filter(Boolean)
                 .join(" | "),
               payMethod,
+              customPrice: hasCustomPrice ? customPrice : undefined,
             };
       const res = await fetch("/api/bookings", {
         method: "POST",
@@ -633,6 +640,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           ]}
                           total={displayTotal ?? "—"}
                           embedded={embedded}
+                          customPrice={customPrice}
+                          onCustomPrice={setCustomPrice}
+                          currency={currency}
                         />
                       )}
                     </>
@@ -696,6 +706,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           ]}
                           total={displayTotal ?? "—"}
                           embedded={embedded}
+                          customPrice={customPrice}
+                          onCustomPrice={setCustomPrice}
+                          currency={currency}
                         />
                       )}
                     </>
@@ -1217,6 +1230,9 @@ function PaymentStep({
   payMethod,
   onPayMethod,
   embedded = false,
+  customPrice = "",
+  onCustomPrice,
+  currency = "€",
 }: {
   mode: Mode;
   lines: { label: string; value: string }[];
@@ -1224,6 +1240,9 @@ function PaymentStep({
   payMethod: "card" | "cash";
   onPayMethod: (m: "card" | "cash") => void;
   embedded?: boolean;
+  customPrice?: string;
+  onCustomPrice?: (v: string) => void;
+  currency?: string;
 }) {
   const moment = mode === "bilet" ? "îmbarcare" : "livrare";
   return (
@@ -1256,6 +1275,32 @@ function PaymentStep({
           </span>
         </div>
       </div>
+
+      {embedded && onCustomPrice && (
+        <div className="mt-4 rounded-xl border-2 border-dashed border-[color:var(--red-500)] bg-[color:var(--red-50)] p-4">
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-[color:var(--red-500)]">
+            Preț manual (opțional — suprascrie totalul)
+          </label>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="1"
+              value={customPrice}
+              onChange={(e) => onCustomPrice(e.target.value)}
+              placeholder="lasă gol pentru prețul standard"
+              className="w-40 rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-base font-bold text-[color:var(--navy-900)] focus:border-[color:var(--red-500)] focus:outline-none"
+            />
+            <span className="text-lg font-bold text-[color:var(--navy-900)]">{currency}</span>
+            {customPrice.trim() !== "" && (
+              <button type="button" onClick={() => onCustomPrice("")} className="ml-auto text-xs font-semibold text-[color:var(--ink-500)] underline">
+                resetează
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="mt-5 rounded-xl border border-[color:var(--navy-200,rgba(20,58,122,0.18))] bg-[color:var(--navy-50)] p-4 text-sm text-[color:var(--navy-900)] flex items-start gap-3">
         <Info className="h-4 w-4 mt-0.5 shrink-0 text-[color:var(--navy-700)]" />

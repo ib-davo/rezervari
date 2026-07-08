@@ -168,6 +168,13 @@ export async function POST(request: NextRequest) {
       currency = res.currency
     }
 
+    // Rezervare manuală: un OPERATOR autentificat poate pune suma liberă pe bilet
+    // (preț custom). Publicul de pe site NU poate — se ignoră dacă nu e operator.
+    if (operator && body.customPrice != null && String(body.customPrice).trim() !== '') {
+      const cp = Number(body.customPrice)
+      if (Number.isFinite(cp) && cp >= 0) price = Math.round(cp)
+    }
+
     const bookingNumber = generateBookingNumber()
 
     let booking
