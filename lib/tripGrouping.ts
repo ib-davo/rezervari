@@ -2,7 +2,6 @@
 // sau atribuit manual — într-o zi). Folosită de /api/operator/trips (dashboard)
 // și de /api/operator/manifest (export Excel/PDF), ca să fie o singură sursă.
 import { prisma } from "@/lib/prisma";
-import { scheduleForDay, scheduledPlateForTrip } from "@/lib/busSchedule";
 
 export const BOOKING_SELECT = {
   id: true,
@@ -75,6 +74,13 @@ function joinCities(set: Set<string>, max = 2): string {
   if (arr.length <= max) return arr.join(", ");
   return `${arr.slice(0, max).join(", ")} +${arr.length - max}`;
 }
+// Afișare pe ȚARĂ (o cursă cuprinde toate orașele unei țări, plus mai multe
+// țări). Moldova → „Chișinău" (hubul). Deduplicat.
+function joinCountries(set: Set<string>, max = 3): string {
+  const arr = [...new Set([...set].map((c) => (isMD(c) ? "Chișinău" : c)))].filter(Boolean).sort((a, b) => a.localeCompare(b, "ro"));
+  if (arr.length <= max) return arr.join(", ");
+  return `${arr.slice(0, max).join(", ")} +${arr.length - max}`;
+}
 function paxOf(b: BookingRow): number {
   if (b.type === "parcel") return 1;
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
@@ -102,6 +108,8 @@ type Group = TripGroupData & {
   _dests: Set<string>;
   _originsFull: Set<string>;
   _destsFull: Set<string>;
+  _originCountries: Set<string>;
+  _destCountries: Set<string>;
   _memberTrips: Set<string>;
 };
 
@@ -138,9 +146,32 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     : [];
   const busMap = new Map(manualBuses.map((b) => [b.id, b]));
 
-  // Toate autobuzele active (după plăcuță) — pentru programul fix + cardurile goale.
-  const allBuses = await prisma.bus.findMany({ where: { active: true }, select: { id: true, label: true, plate: true, totalSeats: true } });
-  const busByPlate = new Map(allBuses.map((b) => [b.plate, b]));
+  // Toate cursele viitoare (o singură dată) — sursă unică pentru: (a) legarea
+  // rezervărilor loose (fără cursă în DB) de cursa fizică după zi+direcție+țară,
+  // (b) cardurile goale. Reflectă orice schimbare de autobuz din admin.
+  const horizon = new Date(now.getTime() + 16 * 7 * 24 * 3600 * 1000);
+  const scheduled = await prisma.trip.findMany({
+    where: { departureAt: { gte: now, lte: horizon }, status: { in: ["scheduled", "boarding"] } },
+    select: {
+      departureAt: true,
+      capacity: true,
+      bus: { select: { id: true, label: true, plate: true, totalSeats: true } },
+      route: { select: { originCity: { select: { country: { select: { name: true } } } }, destinationCity: { select: { country: { select: { name: true } } } } } },
+    },
+    take: 5000,
+  });
+  // Lookup: `zi|direcție|țară non-MD` → autobuzul cursei fizice din DB.
+  const runBusByKey = new Map<string, JourneyBus>();
+  for (const t of scheduled) {
+    if (!t.bus) continue;
+    const oC = t.route?.originCity?.country?.name ?? "";
+    const dC = t.route?.destinationCity?.country?.name ?? "";
+    const inbound = isMD(dC);
+    const country = (inbound ? oC : dC).trim().toLowerCase();
+    if (!country) continue;
+    const k = `${dayKey(t.departureAt)}|${inbound ? 1 : 0}|${country}`;
+    if (!runBusByKey.has(k)) runBusByKey.set(k, { id: t.bus.id, label: t.bus.label, plate: t.bus.plate ?? null, totalSeats: t.bus.totalSeats ?? null });
+  }
 
   const groups = new Map<string, Group>();
 
@@ -162,19 +193,17 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     const dCountry = trip?.route?.destinationCity?.country?.name ?? countryOf(b.arrivalCity);
     const direction = isMD(dCountry) ? "in" : isMD(oCountry) ? "out" : "x";
 
-    // PROGRAM FIX: autobuzul e determinat de zi + țară (dus) / țara de origine
-    // (retur), nu de ce e în DB. Se aplică și rezervărilor loose (fără cursă),
-    // după data + țările lor (dacă orașul are „, Țară"). Doar pe leg-ul dus la loose.
-    if (trip || legKind === "dep") {
-      const schedDate = trip ? trip.departureAt : b.departureDate;
-      const plate = scheduledPlateForTrip(schedDate, oCountry, dCountry, dName);
-      if (plate && busByPlate.has(plate)) {
-        const sb = busByPlate.get(plate)!;
-        bus = { id: sb.id, label: sb.label, plate: sb.plate ?? null, totalSeats: sb.totalSeats ?? null };
-      }
+    const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
+
+    // Rezervare loose (fără cursă în DB): leag-o de cursa fizică (autobuzul DB)
+    // după zi + direcție + țara non-MD, ca să se grupeze cu run-ul, nu separat.
+    if (!bus) {
+      const inbound = isMD(dCountry);
+      const country = (inbound ? oCountry : dCountry).trim().toLowerCase();
+      const rb = country ? runBusByKey.get(`${dk}|${inbound ? 1 : 0}|${country}`) : undefined;
+      if (rb) bus = rb;
     }
 
-    const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
     const departureIso = trip ? trip.departureAt.toISOString() : b.departureDate.toISOString();
     const key = bus ? `${dk}:bus:${bus.id}` : `${dk}:none:${direction}`;
 
@@ -201,6 +230,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         _dests: new Set(),
         _originsFull: new Set(),
         _destsFull: new Set(),
+        _originCountries: new Set(),
+        _destCountries: new Set(),
         _memberTrips: new Set(),
       };
       groups.set(key, g);
@@ -210,6 +241,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     g._dests.add(dName);
     g._originsFull.add(withCountry(oName, oCountry));
     g._destsFull.add(withCountry(dName, dCountry));
+    g._originCountries.add(oCountry || oName);
+    g._destCountries.add(dCountry || dName);
     if (trip) g._memberTrips.add(trip.id);
     if (departureIso < g.departureAt) g.departureAt = departureIso;
     if (!g.capacity && (bus?.totalSeats || trip?.capacity)) g.capacity = bus?.totalSeats ?? trip?.capacity ?? null;
@@ -226,8 +259,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     .map((g) => {
       const origins = [...g._origins];
       const dests = [...g._dests];
-      g.from = joinCities(g._origins);
-      g.to = joinCities(g._dests);
+      g.from = joinCountries(g._originCountries);
+      g.to = joinCountries(g._destCountries);
       g.multi = origins.length > 1 || dests.length > 1;
       g.tripIds = [...g._memberTrips];
 
@@ -248,8 +281,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         g.add = {};
       }
 
-      const { _origins, _dests, _originsFull, _destsFull, _memberTrips, ...pub } = g;
-      void _origins; void _dests; void _originsFull; void _destsFull; void _memberTrips;
+      const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _memberTrips, ...pub } = g;
+      void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _memberTrips;
       return pub;
     });
 
@@ -257,38 +290,42 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
   const calendar: Record<string, number> = {};
   for (const g of list) calendar[g.dayKey] = (calendar[g.dayKey] ?? 0) + 1;
 
-  // Curse PROGRAMATE GOALE — generate din PROGRAMUL FIX (nu din DB): fiecare
-  // zi de plecare (joi / vineri) în fereastra de ~16 săptămâni primește un card
-  // cu autobuzul + țările deservite. Zilele care au deja rezervări pe același
-  // autobuz NU primesc card gol (cheie identică → sar).
+  // Curse PROGRAMATE GOALE — din DB (sursa unică): cursele viitoare fără
+  // rezervări, grupate pe cursă fizică (zi + autobuz), afișate pe ȚARĂ. Reflectă
+  // orice schimbare de autobuz făcută din admin.
   const existingKeys = new Set(list.map((g) => g.key));
   const scheduledDaysSet = new Set<string>();
-  const horizonDays = 16 * 7;
-  const midday = 12 * 3600 * 1000; // ora orientativă pentru afișare
-  for (let i = 0; i < horizonDays; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
-    const sch = scheduleForDay(d);
-    if (!sch) continue;
-    const dk = dayKey(d);
+  type Empty = { dk: string; iso: string; bus: NonNullable<(typeof scheduled)[number]["bus"]>; oCountries: Set<string>; dCountries: Set<string>; cap: number | null };
+  const emptyByKey = new Map<string, Empty>();
+  for (const t of scheduled) {
+    if (!t.bus) continue;
+    const dk = dayKey(t.departureAt);
     scheduledDaysSet.add(dk);
-    const bus = busByPlate.get(sch.plate);
-    if (!bus) continue;
-    const key = `${dk}:bus:${bus.id}`;
+    const key = `${dk}:bus:${t.bus.id}`;
     if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
-    existingKeys.add(key);
+    const iso = t.departureAt.toISOString();
+    const oC = t.route?.originCity?.country?.name ?? "";
+    const dC = t.route?.destinationCity?.country?.name ?? "";
+    let e = emptyByKey.get(key);
+    if (!e) { e = { dk, iso, bus: t.bus, oCountries: new Set(), dCountries: new Set(), cap: t.bus.totalSeats ?? t.capacity ?? null }; emptyByKey.set(key, e); }
+    if (iso < e.iso) e.iso = iso;
+    if (oC) e.oCountries.add(oC);
+    if (dC) e.dCountries.add(dC);
+  }
+  for (const [key, e] of emptyByKey) {
     list.push({
       kind: "empty",
       key,
-      busId: bus.id,
-      busLabel: bus.label,
-      busPlate: bus.plate ?? null,
-      from: "Chișinău",
-      to: sch.countries.join(", "),
-      departureAt: new Date(d.getTime() + midday).toISOString(),
+      busId: e.bus.id,
+      busLabel: e.bus.label,
+      busPlate: e.bus.plate ?? null,
+      from: joinCountries(e.oCountries),
+      to: joinCountries(e.dCountries),
+      departureAt: e.iso,
       arrivalAt: null,
-      capacity: bus.totalSeats ?? null,
+      capacity: e.cap,
       seatsTaken: 0,
-      dayKey: dk,
+      dayKey: e.dk,
       multi: false,
       add: {},
       tripIds: [],
