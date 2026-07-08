@@ -180,6 +180,15 @@ Feature în `~/testing api/davo-website` (adminul davo.md, nu panoul operatorilo
 - Verificat: algoritm remapare (unit, toate scenariile), typecheck davo curat, deploy davo Ready. NU testat cu email real (producție, clienți reali) — userul face primul test din admin.
 - ⚠️ Endpoint-ul NU se declanșează automat — doar la apăsarea butonului. Recomandat: prima dată testează cu „Anunță" DEBIFAT (verifici remaparea), apoi cu email pe o cursă reală.
 
+## 7sexies. Runda 10 (8 iul 2026) — SINCRONIZARE totală, DB sursa unică, cursă pe ȚARĂ
+
+Userul: „totul sincronizat, DB-driven, cursă = per autocar + per dată + per ȚARĂ (nu oraș; o cursă cuprinde toate orașele unei țări + mai multe țări)". Refăcut din programul-în-cod → **program în DB**:
+- **Aliniere DB** (script `scratchpad/align-db.js`, rulat cu --apply): scris busId corect pe **1060 curse** conform programului (909 DAW 077→ZNQ 874 vinerile, 151→DAW 777 pe 10–12 iul), remapat 7 locuri. Verificat: Joi DUS=DAW 077, Vin DUS=ZNQ 874(+DAW 777 pe 10), retururi pe țara de origine. **DB = sursa unică acum.** Reversibil (toate erau DAW 077).
+- **Panou operatori** (`lib/tripGrouping.ts`): scos override-ul `busSchedule` — citește `trip.bus` din DB. Rezervările loose (fără cursă) se leagă de run-ul fizic din DB după zi+direcție+țară (`runBusByKey`). Afișare pe **ȚARĂ** (`joinCountries`, dedup+sortat). Carduri goale din DB. `lib/busSchedule.ts` ȘTERS.
+- **Admin davo** (`app/(admin)/admin/trips/page.tsx`): lista grupată în **carduri de cursă** (autocar+zi+direcție), afișare pe țară, ocupare totală, status uniform/mixt pe toate rutele, click→pasageri+change-bus. GET `/api/admin/trips` +originCountry/destinationCountry/busPlate.
+- **Sincronizare**: admin schimbă autobuz → scrie DB → apare instant pe panou (ambele citesc `trip.bus`). Change-bus e pe tot run-ul (vezi runda 9).
+- ⚠️ De verificat vizual adminul davo.md (n-am putut testa cu sesiune admin). ⚠️ Generatorul de curse (`tripGenerator`) încă pune bus default — cursele noi generate pe viitor vor trebui re-aliniate (sau fă generatorul schedule-aware).
+
 ## 7. Rulare / build / deploy
 
 ```bash
