@@ -142,12 +142,19 @@ model Client {
   vip       Boolean  @default(false)
   notes     String?
 
+  // ID global partajat cu sistemul de colete (Supabase separat). Cheie naturală =
+  // telefonul canonic (fără prefix +373/0/00). Aceeași persoană primește același
+  // global_client_id în ambele baze, deci putem lega clientul din colete cu cel din
+  // pasageri. Aditiv, populat de scriptul de sync. Vezi _davo-rollback-anchor.
+  globalClientId String?
+
   bookings  Booking[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([phone])
+  @@index([globalClientId])
 }
 
 // ===== Rezervări (existent + relații noi opționale) =====
