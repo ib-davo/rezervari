@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { arrivalFor, nextDepartures } from "@/lib/schedule";
-import { busPlateForCountry } from "@/lib/busSchedule";
+import { busPlateForCountry, extraOutboundDays } from "@/lib/busSchedule";
 
 const HORIZON_WEEKS = 16;
 const DEFAULT_LIMIT = 30;
@@ -221,6 +221,25 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Zile SUPLIMENTARE de plecare (ex. Belgia mai pleacă și joi cu DAW 077, pe
+    // lângă vineri cu ZNQ 874). Le materializăm lazy și le includem în rezultat.
+    const extraDates: Date[] = [];
+    if (originIsMd && !date) {
+      for (const ex of extraOutboundDays(foreignCountry.name)) {
+        const exDates = nextDepartures(ex.weekday, ex.time, HORIZON_WEEKS, dateRange.gte);
+        if (exDates.length === 0) continue;
+        extraDates.push(...exDates);
+        await ensureTripsForSchedule({
+          routeId: route.id,
+          weekday: ex.weekday,
+          time: ex.time,
+          durationHours: ex.durationHours,
+          from: dateRange.gte,
+          plate: ex.plate,
+        });
+      }
+    }
+
     // Filtrul findMany: dacă schedule e setat (avem expected dates), returnăm
     // STRICT trip-urile care match acele ore exacte. Astfel trip-urile vechi
     // de la o oră schimbată în admin (care încă au rezervări → nu pot fi
@@ -233,8 +252,8 @@ export async function GET(req: NextRequest) {
       where: {
         routeId: route.id,
         status: { in: ["scheduled", "boarding"] },
-        ...(expectedDates.length > 0
-          ? { departureAt: { in: expectedDates } }
+        ...(expectedDates.length > 0 || extraDates.length > 0
+          ? { departureAt: { in: [...expectedDates, ...extraDates] } }
           : { departureAt: dateRange }),
       },
       orderBy: { departureAt: "asc" },
