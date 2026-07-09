@@ -202,6 +202,13 @@ Userul: „totul sincronizat, DB-driven, cursă = per autocar + per dată + per 
 
 **A. Stocare + unificare clienți davo + colete.vercel.app — ULTERIOR** (userul a zis „ulterior"). davo are deja `admin/clients`. `colete.vercel.app` = proiect separat de colete.
 
+## 7octies. Runda 12 (9 iul 2026) — reprogramare + autocomplete clienți + fix 12 iul
+
+- **Reschedule (panou, LIVE)**: buton „Modifică data/locul" pe fiecare rezervare activă → modal cu `TripPicker` (dată+loc nou, +retur dacă e tur-retur). `POST /api/operator/bookings/[id]/reschedule`: eliberează locul vechi (`seatBooking.deleteMany`), atribuie noul, mută `tripId`+`departureDate`(+retur), reprogramează reminderele, verifică loc liber (409), operator-only. Email inline `rescheduleHtml`/`sendRescheduleConfirmation` + EmailLog. Verificat e2e: 16 iul loc5→23 iul loc9.
+- **Autocomplete clienți (panou, LIVE)**: `GET /api/operator/clients?q=` (min 2 car, caută Client după nume/tel/email, operator-only). `ClientSearch` în `BookingForm` (embedded) — scrii 2-3 litere → alegi → completează nume+tel+email. Evidența Client se populează automat la rezervare (`autoLinkTripAndClient`).
+- **Fix excepție DAW 777**: `busPlateForRun` ia DATA; 10 iul (dus) + 12 iul (retur) → DAW 777 pt. TOATE țările → o singură cursă, nu split. `isDaw777Date`.
+- ⚠️ **Belgia pe ce zi?** — userul zice joi (DAW 077) + vineri (ZNQ 874); în date e doar vineri. ÎNTREBAT (joi/vineri/ambele), NU am schimbat programul Belgiei încă. De confirmat.
+
 ## 7. Rulare / build / deploy
 
 ```bash
