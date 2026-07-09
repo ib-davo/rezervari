@@ -171,15 +171,6 @@ export default function Sidebar({
             </div>
           ))}
         </nav>
-
-        <div className="border-t border-slate-200 p-4">
-          <div className="rounded-lg bg-slate-50 p-3 text-xs">
-            <div className="font-semibold text-slate-900">Mod demo</div>
-            <p className="mt-1 text-slate-500">
-              Datele sunt mock. Baza de date reală se conectează în pasul următor.
-            </p>
-          </div>
-        </div>
       </aside>
     </>
   );
