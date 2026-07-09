@@ -179,9 +179,10 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
 
     // Rezervare loose (fără cursă în DB): leag-o de cursa fizică după regula
-    // recurentă (țara non-MD → autobuz), ca să se grupeze cu run-ul, nu separat.
+    // recurentă (dată + țara non-MD → autobuz), ca să se grupeze cu run-ul.
     if (!bus) {
-      const plate = busPlateForRun(oCountry, dCountry);
+      const legDate = trip ? trip.departureAt : b.departureDate;
+      const plate = busPlateForRun(legDate, oCountry, dCountry);
       const rb = plate ? busByPlate.get(plate) : undefined;
       if (rb) bus = { id: rb.id, label: rb.label, plate: rb.plate ?? null, totalSeats: rb.totalSeats ?? null };
     }
