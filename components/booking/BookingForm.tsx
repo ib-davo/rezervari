@@ -934,7 +934,7 @@ function DirectionStep({
 
 // Autocomplete clienți (doar operator): scrii 2-3 litere din nume / telefon /
 // email → apar clienții existenți din evidență → îi alegi și se completează.
-type ClientHit = { id: string; firstName: string; lastName: string; email: string; phone: string; vip: boolean };
+type ClientHit = { id: string; firstName: string; lastName: string; email: string; phone: string; vip: boolean; source?: "pasager" | "colet" };
 function ClientSearch({ onPick }: { onPick: (c: { firstName: string; lastName: string; email: string; phone: string }) => void }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<ClientHit[]>([]);
@@ -981,7 +981,12 @@ function ClientSearch({ onPick }: { onPick: (c: { firstName: string; lastName: s
                 className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[color:var(--ink-50)]"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-semibold text-[color:var(--navy-900)]">{c.firstName} {c.lastName}{c.vip ? " ⭐" : ""}</span>
+                  <span className="flex items-center gap-2">
+                    <span className="truncate font-semibold text-[color:var(--navy-900)]">{c.firstName} {c.lastName}{c.vip ? " ⭐" : ""}</span>
+                    {c.source === "colet" && (
+                      <span className="shrink-0 rounded-full bg-[color:var(--ink-100)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ink-500)]">colet</span>
+                    )}
+                  </span>
                   <span className="block truncate text-xs text-[color:var(--ink-500)]">{c.phone}{c.email ? ` · ${c.email}` : ""}</span>
                 </span>
               </button>
