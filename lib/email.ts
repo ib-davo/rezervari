@@ -2,9 +2,11 @@ import { Resend } from "resend";
 import {
   confirmationHtml,
   adminNotificationHtml,
+  rescheduleHtml,
   subjectForType,
   type ConfirmationData,
   type ResponseUrls,
+  type RescheduleData,
 } from "./emailTemplates";
 import { resolveScheduledTimes } from "./scheduledTime";
 
@@ -60,6 +62,31 @@ export async function sendBookingConfirmation(
     return { success: true };
   } catch (error) {
     console.error("Email error:", error);
+    return { success: false, error: "Failed to send email" };
+  }
+}
+
+// Confirmare de MODIFICARE (dată + loc) — trimisă inline când operatorul
+// reprogramează o rezervare din panou.
+export async function sendRescheduleConfirmation(
+  data: RescheduleData & { email: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
+    const html = rescheduleHtml(data);
+    const { error } = await getResend().emails.send({
+      from: process.env.EMAIL_FROM || "DAVO Group <info@davo.md>",
+      to: data.email,
+      subject: `Rezervare modificată — ${data.bookingNumber}`,
+      html,
+    });
+    if (error) {
+      console.error("Reschedule email error:", error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (error) {
+    console.error("Reschedule email error:", error);
     return { success: false, error: "Failed to send email" };
   }
 }

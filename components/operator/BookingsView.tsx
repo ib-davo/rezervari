@@ -7,6 +7,7 @@ import {
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
+import { TripPicker } from "@/components/booking/TripPicker";
 
 export type OperatorBooking = {
   id: string;
@@ -338,7 +339,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
               </div>
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((b) => (
-                  <BookingCard key={b.id} b={b} scope={scope} onAct={act} />
+                  <BookingCard key={b.id} b={b} scope={scope} onAct={act} onReload={load} />
                 ))}
               </div>
             </section>
@@ -393,12 +394,14 @@ function sourceClass(source: string) {
 }
 
 function BookingCard({
-  b, scope, onAct,
+  b, scope, onAct, onReload,
 }: {
   b: OperatorBooking;
   scope: "active" | "archived";
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onReload: () => void;
 }) {
+  const [rescheduling, setRescheduling] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -515,6 +518,12 @@ function BookingCard({
             </ActionBtn>
           )}
           {scope === "active" && !cancelled && (
+            <ActionBtn onClick={() => setRescheduling(true)}
+              className="border border-[color:var(--navy-200,rgba(20,58,122,0.25))] text-[color:var(--navy-700)]">
+              <CalendarDays className="h-3.5 w-3.5" /> Modifică data/locul
+            </ActionBtn>
+          )}
+          {scope === "active" && !cancelled && (
             confirmCancel ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 pl-3 pr-1 py-1 text-xs font-semibold text-red-700">
                 Se eliberează locurile — sigur?
@@ -553,6 +562,115 @@ function BookingCard({
           )}
         </div>
       )}
+      {rescheduling && <RescheduleModal b={b} onClose={() => setRescheduling(false)} onReload={onReload} />}
+    </div>
+  );
+}
+
+function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose: () => void; onReload: () => void }) {
+  const [cities, setCities] = useState<Record<string, string>>({});
+  const pax = b.type === "parcel" ? 1 : Math.max(1, b.adults + b.children);
+  const isRound = b.tripType === "round-trip" && !!b.returnTripId;
+  const [tripId, setTripId] = useState<string | null>(null);
+  const [seats, setSeats] = useState<number[]>([]);
+  const [rTripId, setRTripId] = useState<string | null>(null);
+  const [rSeats, setRSeats] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/public/cities")
+      .then((r) => r.json())
+      .then((d) => {
+        const idx: Record<string, string> = {};
+        for (const c of d.cities || []) idx[String(c.name).toLowerCase()] = c.id;
+        setCities(idx);
+      })
+      .catch(() => {});
+  }, []);
+
+  const originId = cities[b.departureCity.split(",")[0].trim().toLowerCase()] ?? null;
+  const destId = cities[b.arrivalCity.split(",")[0].trim().toLowerCase()] ?? null;
+  const seatsOk = b.type === "parcel" || seats.length === pax;
+  const retOk = !isRound || (!!rTripId && (b.type === "parcel" || rSeats.length === pax));
+  const canSubmit = !!tripId && seatsOk && retOk && !busy;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/operator/bookings/${b.id}/reschedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId, seatNumbers: seats, returnTripId: isRound ? rTripId : undefined, returnSeatNumbers: isRound ? rSeats : undefined }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        setMsg({ ok: true, text: `Modificat. ${d.emailSent ? "Email de confirmare trimis clientului." : "(emailul n-a putut fi trimis)"}` });
+        onReload();
+        setTimeout(onClose, 1400);
+      } else {
+        setMsg({ ok: false, text: d.error || "Eroare" });
+      }
+    } catch {
+      setMsg({ ok: false, text: "Eroare de rețea" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
+      <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-[color:var(--navy-900)]">Modifică data & locul</h3>
+          <button onClick={onClose} className="rounded-md p-1 text-[color:var(--ink-500)] hover:bg-[color:var(--ink-50)]" aria-label="Închide"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="mb-3 text-sm text-[color:var(--ink-500)]">
+          {b.firstName} · {b.departureCity} → {b.arrivalCity} · {pax} {pax === 1 ? "loc" : "locuri"}{isRound ? " · tur-retur" : ""}
+        </div>
+        {originId && destId ? (
+          <>
+            <TripPicker
+              title="Alege noua dată + loc"
+              originCityId={originId}
+              destCityId={destId}
+              maxSeats={pax}
+              parcelMode={b.type === "parcel"}
+              selectedTripId={tripId}
+              selectedSeats={seats}
+              onSelect={(t, s) => { setTripId(t); setSeats(s); }}
+            />
+            {isRound && (
+              <div className="mt-4">
+                <TripPicker
+                  title="Alege noul retur"
+                  originCityId={destId}
+                  destCityId={originId}
+                  maxSeats={pax}
+                  parcelMode={b.type === "parcel"}
+                  selectedTripId={rTripId}
+                  selectedSeats={rSeats}
+                  onSelect={(t, s) => { setRTripId(t); setRSeats(s); }}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">Nu pot identifica automat orașele acestei rezervări.</div>
+        )}
+        {msg && (
+          <div className={`mt-3 rounded-lg px-3 py-2 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{msg.text}</div>
+        )}
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className="mt-4 w-full rounded-full bg-[color:var(--red-500)] px-4 py-2.5 text-sm font-bold text-white active:scale-95 transition-transform disabled:opacity-50"
+        >
+          {busy ? "Se salvează…" : "Confirmă (trimite email clientului)"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -400,6 +400,50 @@ export function cancellationHtml(b: Booking): string {
   });
 }
 
+// ----- Modificare rezervare (dată + loc) -----
+
+export type RescheduleData = {
+  firstName: string;
+  departureCity: string;
+  arrivalCity: string;
+  oldDate: Date;
+  newDate: Date;
+  newTime?: string | null;
+  seats: string; // "12" / "12, 13" / ""
+  bookingNumber: string;
+  returnNewDate?: Date | null;
+};
+
+export function rescheduleHtml(d: RescheduleData): string {
+  const multi = d.seats.includes(",");
+  const rows: DetailRow[] = [
+    { label: "Cursa", value: `${d.departureCity} → ${d.arrivalCity}` },
+    { label: "Data veche", value: formatDate(d.oldDate) },
+    { label: "Data nouă", value: `${formatDate(d.newDate)}${d.newTime ? ` · ${d.newTime}` : ""}` },
+  ];
+  if (d.returnNewDate) rows.push({ label: "Retur nou", value: formatDate(d.returnNewDate) });
+  if (d.seats) rows.push({ label: multi ? "Locurile tale" : "Locul tău", value: d.seats });
+  rows.push({ label: "Nr. rezervare", value: d.bookingNumber });
+
+  const body = `
+    ${headline(`${d.firstName}, rezervarea ta a fost modificată.`)}
+    ${intro(`Am actualizat, la cererea ta, data${d.seats ? ` și ${multi ? "locurile" : "locul"}` : ""} pentru cursa <strong style="color:${C.navy900};">${d.departureCity} → ${d.arrivalCity}</strong>. Restul rezervării rămâne neschimbat. Detaliile noi:`)}
+    ${detailsCard(rows)}
+    <p style="margin:0;font-family:${FONT_BODY};font-size:14px;color:${C.ink700};line-height:1.6;">
+      Orice întrebare — suntem lângă tine la
+      <a href="tel:+37368065699" style="color:${C.red500};font-weight:700;text-decoration:none;">+373 68 065 699</a>
+      sau <a href="mailto:info@davo.md" style="color:${C.red500};font-weight:700;text-decoration:none;">info@davo.md</a>.
+    </p>
+  `;
+  return layout({
+    preheader: `Rezervare modificată · noua dată ${formatDate(d.newDate)}${d.seats ? ` · loc ${d.seats}` : ""}`,
+    title: "Rezervare modificată",
+    eyebrow: "Modificată",
+    eyebrowColor: "rgba(255,255,255,0.7)",
+    body,
+  });
+}
+
 // ----- Admin notification -----
 
 export function adminNotificationHtml(b: ConfirmationData): string {
