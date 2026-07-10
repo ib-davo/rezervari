@@ -258,8 +258,9 @@ export function TripPicker({
     if (autoSelectDone.current || selectedTripId) return;
     if (autoSelectTripId) {
       const t = (trips ?? []).find((x) => x.id === autoSelectTripId);
-      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); }
-      return;
+      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); return; }
+      // tripId-ul nu e pe ruta curentă (operatorul a ales alt oraș decât cel al
+      // trip-ului din link) → cădem pe selecția după zi, nu blocăm.
     }
     // „+ Rezervare pe cursă" pe o zi anume: selectăm cursa din ziua respectivă
     // imediat ce operatorul a ales orașul (fără să mai treacă prin calendar).

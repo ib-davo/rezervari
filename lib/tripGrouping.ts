@@ -111,6 +111,10 @@ type Group = TripGroupData & {
   _destsFull: Set<string>;
   _originCountries: Set<string>;
   _destCountries: Set<string>;
+  // Doar țări REALE (fără fallback pe numele orașului) — pentru detecția
+  // direcției la prefill-ul „+ Rezervare pe cursă".
+  _originCountriesStrict: Set<string>;
+  _destCountriesStrict: Set<string>;
   _memberTrips: Set<string>;
 };
 
@@ -215,6 +219,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         _destsFull: new Set(),
         _originCountries: new Set(),
         _destCountries: new Set(),
+        _originCountriesStrict: new Set(),
+        _destCountriesStrict: new Set(),
         _memberTrips: new Set(),
       };
       groups.set(key, g);
@@ -226,6 +232,11 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     g._destsFull.add(withCountry(dName, dCountry));
     g._originCountries.add(oCountry || oName);
     g._destCountries.add(dCountry || dName);
+    // Seturi STRICTE: doar țări cunoscute cu adevărat. Fallback-ul pe numele
+    // orașului („56593 Horhausen", „Cahul") ar otrăvi detecția direcției pentru
+    // prefill-ul „+ Rezervare pe cursă" — o adresă liberă nu e o țară.
+    if (oCountry) g._originCountriesStrict.add(oCountry);
+    if (dCountry) g._destCountriesStrict.add(dCountry);
     if (trip) g._memberTrips.add(trip.id);
     if (departureIso < g.departureAt) g.departureAt = departureIso;
     if (!g.capacity && (bus?.totalSeats || trip?.capacity)) g.capacity = bus?.totalSeats ?? trip?.capacity ?? null;
@@ -259,11 +270,24 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       // trimitea doar to=Chișinău → formularul pornea greșit Moldova→gol, cu
       // direcția inversată și orice țară selectabilă (inclusiv unde autocarul
       // acestei curse nu merge niciodată).
-      const originCountriesArr = [...g._originCountries];
-      const destCountriesArr = [...g._destCountries];
+      // Direcția din seturile STRICTE (doar țări reale) — o rezervare cu adresă
+      // liberă („56593 Horhausen") nu mai strică detecția inbound/outbound.
+      const originCountriesArr = [...g._originCountriesStrict];
+      const destCountriesArr = [...g._destCountriesStrict];
       const inboundRun = destCountriesArr.length > 0 && destCountriesArr.every((c) => isMD(c));
       const outboundRun = originCountriesArr.length > 0 && originCountriesArr.every((c) => isMD(c));
-      const euCountries = inboundRun ? originCountriesArr : outboundRun ? destCountriesArr : [];
+      // Țările REAL deservite de autobuz în ziua aia (regula recurentă) — nu doar
+      // cele din rezervările existente. Altfel, DAW 777 pe 12 iul (Belgia/Olanda/
+      // Germania) cu rezervări doar din Belgia+Germania ar bloca Olanda la „+".
+      let scheduledEu: string[] = [];
+      if (g.busPlate && (inboundRun || outboundRun)) {
+        const run = scheduledRunsForDate(new Date(g.departureAt), countrySchedule).find(
+          (r) => r.plate === g.busPlate && r.inbound === inboundRun
+        );
+        if (run) scheduledEu = [...new Set(run.countries)];
+      }
+      const bookedEu = (inboundRun ? originCountriesArr : outboundRun ? destCountriesArr : []).filter((c) => !isMD(c));
+      const euCountries = [...new Set([...bookedEu, ...scheduledEu])];
       g.add = {
         date: dayKey(new Date(g.departureAt)),
         ...(euCountries.length > 0 ? { countries: euCountries } : {}),
@@ -278,8 +302,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
           : outboundRun && euCountries.length === 1 ? { to: euCountries[0] } : {}),
       };
 
-      const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _memberTrips, ...pub } = g;
-      void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _memberTrips;
+      const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _originCountriesStrict, _destCountriesStrict, _memberTrips, ...pub } = g;
+      void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _originCountriesStrict; void _destCountriesStrict; void _memberTrips;
       return pub;
     });
 
