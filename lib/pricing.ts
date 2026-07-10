@@ -31,7 +31,8 @@ function findCity(cityName: string) {
 }
 
 const DEFAULT_BASE_PRICE = 100;
-const ROUND_TRIP_MULTIPLIER = 1.8;
+// Tur-retur = dus + retur plătite integral (fără reducere): ×2.
+const ROUND_TRIP_MULTIPLIER = 2;
 const CHILD_DISCOUNT = 0.5;
 // Tarif colete: 1.5/kg în valuta rutei (EUR, sau GBP pe Anglia). Aceeași formulă
 // ca în UI (BookingForm) — prețul afișat clientului trebuie să fie cel salvat.

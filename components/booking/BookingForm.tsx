@@ -323,7 +323,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       return Math.round(billable * 1.5);
     }
     const pax = Math.max(1, outboundSeats.length || 1);
-    const multi = trip === "return" ? 1.8 : 1;
+    const multi = trip === "return" ? 2 : 1; // tur-retur = dus + retur integral
     return Math.round(basePrice * pax * multi);
   }, [mode, basePrice, outboundSeats.length, trip, parcel.weight]);
 
