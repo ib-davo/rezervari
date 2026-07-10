@@ -33,6 +33,26 @@ function findCity(cityName: string) {
 const DEFAULT_BASE_PRICE = 100;
 // Tur-retur = dus + retur plătite integral (fără reducere): ×2.
 const ROUND_TRIP_MULTIPLIER = 2;
+
+// Locuri PREMIUM per autocar: pe DAW 777 (Astromega), locurile 1–8 și 25–28
+// costă +30 (în valuta rutei) față de restul. Sursa de adevăr e AICI — serverul
+// calculează prețul salvat, frontend-ul doar afișează aceeași formulă.
+const PREMIUM_SEATS: Record<string, { seats: number[]; amount: number }> = {
+  "DAW 777": { seats: [1, 2, 3, 4, 5, 6, 7, 8, 25, 26, 27, 28], amount: 30 },
+};
+
+export function premiumSeatRule(plate: string | null | undefined): { seats: number[]; amount: number } | null {
+  if (!plate) return null;
+  return PREMIUM_SEATS[plate.trim().toUpperCase()] ?? null;
+}
+
+// Suplimentul total pentru locurile alese pe un segment (0 dacă autocarul n-are locuri premium).
+export function seatSurcharge(plate: string | null | undefined, seatNumbers: number[]): number {
+  const rule = premiumSeatRule(plate);
+  if (!rule) return 0;
+  const premium = new Set(rule.seats);
+  return seatNumbers.reduce((s, n) => s + (premium.has(n) ? rule.amount : 0), 0);
+}
 const CHILD_DISCOUNT = 0.5;
 // Tarif colete: 1.5/kg în valuta rutei (EUR, sau GBP pe Anglia). Aceeași formulă
 // ca în UI (BookingForm) — prețul afișat clientului trebuie să fie cel salvat.

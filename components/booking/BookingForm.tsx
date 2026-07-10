@@ -23,6 +23,7 @@ import {
   Search,
 } from "lucide-react";
 import { destinations, moldovanCities, contactInfo } from "@/lib/data";
+import { seatSurcharge } from "@/lib/pricing";
 import { CountryCityPicker, complementHide, getCountryFromValue } from "@/components/booking/CountryCityPicker";
 import { useLocale } from "@/lib/i18n/client";
 import type { Locale } from "@/lib/i18n/config";
@@ -364,8 +365,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
     }
     const pax = Math.max(1, outboundSeats.length || 1);
     const multi = trip === "return" ? 2 : 1; // tur-retur = dus + retur integral
-    return Math.round(basePrice * pax * multi);
-  }, [mode, basePrice, outboundSeats.length, trip, parcel.weight]);
+    // Locuri premium (ex. DAW 777: 1–8, 25–28 = +30/loc) — aceeași formulă ca serverul.
+    const surcharge =
+      seatSurcharge(outboundTripInfo?.busPlate, outboundSeats) +
+      (trip === "return" ? seatSurcharge(returnTripInfo?.busPlate, returnSeats) : 0);
+    return Math.round(basePrice * pax * multi + surcharge);
+  }, [mode, basePrice, outboundSeats, returnSeats, outboundTripInfo, returnTripInfo, trip, parcel.weight]);
 
   // Preț afișat doar după o selecție relevantă — altfel apărea un "100€" fals
   // (fallback-ul DEFAULT_BASE) înainte ca userul să aleagă măcar destinația.
@@ -727,8 +732,14 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                             { label: `Locuri: ${outboundSeats.length || 1}`, value: `×${outboundSeats.length || 1}` },
                             {
                               label: trip === "return" ? "Tur-retur" : "O direcție",
-                              value: trip === "return" ? "+80%" : "—",
+                              value: trip === "return" ? "×2" : "—",
                             },
+                            ...(() => {
+                              const s =
+                                seatSurcharge(outboundTripInfo?.busPlate, outboundSeats) +
+                                (trip === "return" ? seatSurcharge(returnTripInfo?.busPlate, returnSeats) : 0);
+                              return s > 0 ? [{ label: "Locuri premium (1–8, 25–28)", value: `+${s}${currency}` }] : [];
+                            })(),
                           ]}
                           total={displayTotal ?? "—"}
                           embedded={embedded}

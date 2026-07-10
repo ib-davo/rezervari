@@ -13,6 +13,7 @@ import {
   Bus as BusIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { premiumSeatRule } from "@/lib/pricing";
 import { BusSeatMap } from "./BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
 
@@ -72,6 +73,21 @@ function buildMonthGrid(view: Date): { date: Date; inMonth: boolean }[] {
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// „1, 2, 3, 4, 25, 26" → „1–4, 25–26" (afișare compactă a locurilor premium).
+function fmtSeatRanges(seats: number[]): string {
+  const s = [...seats].sort((a, b) => a - b);
+  const parts: string[] = [];
+  let start = s[0];
+  let prev = s[0];
+  for (let i = 1; i <= s.length; i++) {
+    const cur = s[i];
+    if (cur === prev + 1) { prev = cur; continue; }
+    parts.push(start === prev ? `${start}` : `${start}–${prev}`);
+    start = cur; prev = cur;
+  }
+  return parts.join(", ");
 }
 
 
@@ -549,13 +565,23 @@ export function TripPicker({
           >
             {detailLoading && <SeatLayoutSkeleton />}
             {!detailLoading && detail && (
-              <BusSeatMap
-                layout={detail.bus.layout}
-                occupiedSeats={detail.occupiedSeats}
-                selected={selectedSeats}
-                onSelect={updateSeats}
-                max={maxSeats}
-              />
+              <>
+                <BusSeatMap
+                  layout={detail.bus.layout}
+                  occupiedSeats={detail.occupiedSeats}
+                  selected={selectedSeats}
+                  onSelect={updateSeats}
+                  max={maxSeats}
+                />
+                {(() => {
+                  const rule = premiumSeatRule(detail.bus.plate);
+                  return rule ? (
+                    <p className="mt-3 rounded-lg bg-[color:var(--ink-50)] px-3 py-2 text-xs font-semibold text-[color:var(--ink-700)]">
+                      ⭐ Locurile {fmtSeatRanges(rule.seats)} sunt premium: +{rule.amount}€/loc.
+                    </p>
+                  ) : null;
+                })()}
+              </>
             )}
           </motion.div>
         )}
