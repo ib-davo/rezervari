@@ -292,14 +292,29 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         date: dayKey(new Date(g.departureAt)),
         ...(euCountries.length > 0 ? { countries: euCountries } : {}),
         ...(memberTripIds.length === 1 ? { tripId: memberTripIds[0] } : {}),
-        // Capete: orașul exact când e unic; altfel doar țara (dacă e una) —
-        // BookingForm derivă direcția corect și dintr-o valoare de tip „doar țară".
-        ...(origins.length === 1
-          ? { from: [...g._originsFull][0] }
-          : inboundRun && euCountries.length === 1 ? { from: euCountries[0] } : {}),
-        ...(dests.length === 1
-          ? { to: [...g._destsFull][0] }
-          : outboundRun && euCountries.length === 1 ? { to: euCountries[0] } : {}),
+        // Capătul Moldova e MEREU hub-ul Chișinău — indiferent câte orașe de
+        // coborâre/urcare au rezervările existente (Cahul etc. nu-l elimină).
+        // Capătul EU: orașul exact dacă e unic, altfel doar țara (dacă e una),
+        // altfel gol — operatorul alege dintre țările din `countries`.
+        ...(inboundRun
+          ? {
+              to: "Chișinău, Moldova",
+              ...(origins.length === 1
+                ? { from: [...g._originsFull][0] }
+                : euCountries.length === 1 ? { from: euCountries[0] } : {}),
+            }
+          : outboundRun
+            ? {
+                from: "Chișinău, Moldova",
+                ...(dests.length === 1
+                  ? { to: [...g._destsFull][0] }
+                  : euCountries.length === 1 ? { to: euCountries[0] } : {}),
+              }
+            : {
+                // Direcție incertă (niciun trip cu țări reale) — comportamentul vechi.
+                ...(origins.length === 1 ? { from: [...g._originsFull][0] } : {}),
+                ...(dests.length === 1 ? { to: [...g._destsFull][0] } : {}),
+              }),
       };
 
       const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _originCountriesStrict, _destCountriesStrict, _memberTrips, ...pub } = g;
