@@ -313,6 +313,25 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
     return cityIndex[toCityName.toLowerCase()]?.id ?? null;
   }, [cityIndex, toCityName, direction, chisinauId]);
 
+  // Când se schimbă EFECTIV ruta (originCityId/destCityId de trip), cursele alese
+  // nu mai sunt valide → le resetăm. Altfel, în panou (calendar colapsat), cursa
+  // veche rămânea selectată iar canContinue rămânea true peste o rută nouă →
+  // submit pe cursa greșită. Ignorăm prima stabilire (prevRouteKey null).
+  const prevRouteKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!originCityId || !destCityId) return;
+    const key = `${originCityId}|${destCityId}`;
+    if (prevRouteKey.current !== null && prevRouteKey.current !== key) {
+      setOutboundTripId(null);
+      setOutboundSeats([]);
+      setOutboundTripInfo(null);
+      setReturnTripId(null);
+      setReturnSeats([]);
+      setReturnTripInfo(null);
+    }
+    prevRouteKey.current = key;
+  }, [originCityId, destCityId]);
+
   const total = useMemo(() => {
     if (mode === "colet") {
       // Tarif fix: 1.5 EUR/kg pe toate rutele non-UK, 1.5 GBP/kg pe Anglia.
@@ -577,6 +596,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               selectedTripId={outboundTripId}
                               selectedSeats={outboundSeats}
                               autoSelectTripId={initialTripId}
+                              // Operator: după ce cursa e aleasă (auto din „+ Rezervare pe
+                              // cursă" sau manual), ascunde calendarul — a ales deja data,
+                              // nu i-l mai arătăm la fiecare pas. Buton „Schimbă data" dacă vrea.
+                              collapsible={embedded}
                               onSelect={(tripId, seats, tripInfo) => {
                                 setOutboundTripId(tripId);
                                 setOutboundSeats(seats);

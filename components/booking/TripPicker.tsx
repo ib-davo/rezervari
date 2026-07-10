@@ -268,6 +268,26 @@ export function TripPicker({
   // „Schimbă data”). Utilizatorul poate re-deschide calendarul dacă vrea altă dată.
   const [expanded, setExpanded] = useState(false);
   const showCalendar = !collapsible || !selectedTripId || expanded;
+  // Cursa selectată VALIDĂ = doar când NU se încarcă ȘI e în lista curentă. În
+  // fereastra de refetch (loading=true, `trips` încă cele vechi) NU arătăm sumar /
+  // seat map stale — altfel operatorul ar putea da „Continuă" pe cursa veche.
+  const selectedTrip = !loading ? (trips ?? []).find((x) => x.id === selectedTripId) ?? null : null;
+
+  // Self-heal: dacă s-a schimbat ruta (trips re-încărcate) și cursa selectată NU
+  // mai e în listă, o deselectăm. Altfel calendarul ar rămâne colapsat pe o cursă
+  // inexistentă, iar canContinue ar rămâne true pe date vechi → submit pe cursa
+  // greșită. Verificăm în `trips` NEfiltrat (curse-excepție valide dar ascunse de
+  // filtrul de zi NU trebuie deselectate).
+  useEffect(() => {
+    if (!trips || !selectedTripId) return;
+    if (!trips.some((t) => t.id === selectedTripId)) {
+      autoSelectDone.current = false;
+      setExpanded(false);
+      onSelect(null, [], null);
+    }
+    // onSelect e stabil; nu-l punem în deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trips, selectedTripId]);
 
   const updateSeats = (seats: number[]) => {
     if (selectedTripId) onSelect(selectedTripId, seats);
@@ -293,11 +313,13 @@ export function TripPicker({
         </div>
       )}
 
-      {!loading && !error && filteredTrips && filteredTrips.length === 0 && <NoTripsCard />}
+      {/* NoTripsCard doar dacă nimic nu e selectat — o cursă auto-selectată (ex.
+          curse-excepție ascunse de filtrul de zi) nu trebuie să pară „fără curse". */}
+      {!loading && !error && filteredTrips && filteredTrips.length === 0 && !selectedTripId && <NoTripsCard />}
 
-      {!loading && total > 0 && (
+      {/* Calendarul (grila lunii) — doar când sunt curse ȘI nu e colapsat. */}
+      {!loading && total > 0 && showCalendar && (
         <div>
-          {showCalendar && (<>
           {/* Header calendar: navigare lună + count */}
           <div className="mb-4 flex items-center justify-between gap-3">
             <button
@@ -403,22 +425,25 @@ export function TripPicker({
               );
             })}
           </div>
-          </>)}
+        </div>
+      )}
 
-          {collapsible && selectedTripId && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="mb-1 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
-            >
-              {expanded ? "Ascunde calendarul" : "Schimbă data retur"}
-            </button>
-          )}
+      {/* „Schimbă data" — INDEPENDENT de total>0, ca operatorul să poată redeschide
+          calendarul și când cursa selectată e ascunsă de filtrul de zi (curse-excepție). */}
+      {!loading && collapsible && selectedTripId && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mb-1 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
+        >
+          {expanded ? "Ascunde calendarul" : "Schimbă data"}
+        </button>
+      )}
 
-          {/* Detalii cursa selectată */}
-          {selectedTripId && filteredTrips && (() => {
-            const t = filteredTrips.find((x) => x.id === selectedTripId);
-            if (!t) return null;
+      {/* Sumarul cursei selectate — din `trips` NEfiltrat (apare și pentru curse-
+          excepție ascunse de allowedWeekday), dar NU în fereastra de refetch. */}
+      {selectedTrip && (() => {
+            const t = selectedTrip;
             const dep = new Date(t.departureAt);
             const currency = t.currency === "GBP" ? "£" : "€";
             return (
@@ -458,12 +483,10 @@ export function TripPicker({
                 </div>
               </div>
             );
-          })()}
-        </div>
-      )}
+      })()}
 
       <AnimatePresence>
-        {selectedTripId && !parcelMode && (
+        {selectedTrip && !parcelMode && (
           <motion.div
             key="seat-picker"
             initial={{ opacity: 0, height: 0 }}
