@@ -612,6 +612,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                             setReturnSeats(seats);
                             if (tripInfo !== undefined) setReturnTripInfo(tripInfo ?? null);
                           }}
+                          // Operator: auto-alege prima dată de retur + ascunde calendarul
+                          // (a ales deja data dus). Publicul își alege liber returul.
+                          autoSelectFirst={embedded}
+                          collapsible={embedded}
                           // Returul are direcția inversă față de cursul dus —
                           // dacă userul a luat dus MD→EU, returul e EU→MD = ziua de retur.
                           allowedWeekday={

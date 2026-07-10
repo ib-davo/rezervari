@@ -88,6 +88,8 @@ export function TripPicker({
   allowedWeekday,
   parcelMode = false,
   autoSelectTripId = null,
+  autoSelectFirst = false,
+  collapsible = false,
 }: {
   title: string;
   subtitle?: string;
@@ -110,6 +112,12 @@ export function TripPicker({
   /** Preselectează automat cursa cu acest id când lista s-a încărcat (folosit
    *  de butonul "+ Rezervare pe cursă" din panoul operatorilor). */
   autoSelectTripId?: string | null;
+  /** Selectează automat prima cursă disponibilă când lista s-a încărcat (ex.
+   *  cursa retur — operatorul a ales deja data dus, nu re-alege din calendar). */
+  autoSelectFirst?: boolean;
+  /** După selectare, ascunde calendarul și arată doar sumarul + „Schimbă data”.
+   *  Evită să re-afișeze calendarul la pasul următor (cerut de operatori). */
+  collapsible?: boolean;
 }) {
   const hasRoute = Boolean(originCityId && destCityId);
   const [trips, setTrips] = useState<PublicTrip[] | null>(null);
@@ -240,15 +248,26 @@ export function TripPicker({
   // în lista NEfiltrată ca filtrul de zi să nu ascundă cursa țintă. O singură dată.
   const autoSelectDone = useRef(false);
   useEffect(() => {
-    if (autoSelectDone.current || !autoSelectTripId || selectedTripId) return;
-    const t = (trips ?? []).find((x) => x.id === autoSelectTripId);
-    if (t) {
-      autoSelectDone.current = true;
-      onSelect(t.id, [], t);
+    if (autoSelectDone.current || selectedTripId) return;
+    if (autoSelectTripId) {
+      const t = (trips ?? []).find((x) => x.id === autoSelectTripId);
+      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); }
+      return;
+    }
+    // Cursa retur: alege automat prima dată disponibilă (operatorul a ales deja
+    // data dus — nu-l punem să caute iar în calendar).
+    if (autoSelectFirst) {
+      const first = (filteredTrips ?? []).find((t) => t.availableSeats > 0);
+      if (first) { autoSelectDone.current = true; onSelect(first.id, [], first); }
     }
     // onSelect e stabil funcțional; nu-l punem în deps ca să nu re-rulăm.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSelectTripId, trips, selectedTripId]);
+  }, [autoSelectTripId, autoSelectFirst, trips, filteredTrips, selectedTripId]);
+
+  // Când collapsible + cursă aleasă → ascundem calendarul (arătăm doar sumarul +
+  // „Schimbă data”). Utilizatorul poate re-deschide calendarul dacă vrea altă dată.
+  const [expanded, setExpanded] = useState(false);
+  const showCalendar = !collapsible || !selectedTripId || expanded;
 
   const updateSeats = (seats: number[]) => {
     if (selectedTripId) onSelect(selectedTripId, seats);
@@ -278,6 +297,7 @@ export function TripPicker({
 
       {!loading && total > 0 && (
         <div>
+          {showCalendar && (<>
           {/* Header calendar: navigare lună + count */}
           <div className="mb-4 flex items-center justify-between gap-3">
             <button
@@ -383,6 +403,17 @@ export function TripPicker({
               );
             })}
           </div>
+          </>)}
+
+          {collapsible && selectedTripId && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mb-1 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
+            >
+              {expanded ? "Ascunde calendarul" : "Schimbă data retur"}
+            </button>
+          )}
 
           {/* Detalii cursa selectată */}
           {selectedTripId && filteredTrips && (() => {
