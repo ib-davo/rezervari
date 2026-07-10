@@ -88,6 +88,9 @@ export async function POST(request: NextRequest) {
 
     const requiredFields = ['type', 'departureCity', 'arrivalCity', 'departureDate', 'firstName', 'lastName', 'email', 'phone']
     for (const field of requiredFields) {
+      // Operatorii pot crea rezervări fără email (mulți clienți nu au) —
+      // rămâne obligatoriu pentru rezervările de pe site.
+      if (field === 'email' && operator) continue
       if (!body[field]) {
         return NextResponse.json(
           { success: false, error: `Lipsește câmpul: ${field}` },
@@ -199,7 +202,7 @@ export async function POST(request: NextRequest) {
             returnDate: body.returnDate ? new Date(body.returnDate) : null,
             firstName: body.firstName,
             lastName: body.lastName,
-            email: body.email,
+            email: body.email || '',
             phone: body.phone,
             adults: adults || 1,
             children,
@@ -296,10 +299,14 @@ export async function POST(request: NextRequest) {
       trackUrl: `${appUrl.replace(/\/$/, '')}/livrare?nr=${booking.bookingNumber}`,
     }
 
-    const emailResult = await sendBookingConfirmation(bookingData)
+    // Fără email (rezervare de operator) nu avem cui trimite confirmarea —
+    // sărim și logarea (nu e un eșec, e intenționat).
+    const emailResult = booking.email
+      ? await sendBookingConfirmation(bookingData)
+      : null
     await sendAdminNotification(bookingData)
 
-    if (emailResult.success) {
+    if (emailResult?.success) {
       await prisma.booking.update({
         where: { id: booking.id },
         data: {
@@ -316,7 +323,7 @@ export async function POST(request: NextRequest) {
           relatedId: booking.id,
         }
       })
-    } else {
+    } else if (emailResult) {
       await prisma.emailLog.create({
         data: {
           to: booking.email,
@@ -338,7 +345,7 @@ export async function POST(request: NextRequest) {
         currency: booking.currency,
         ticketUrl,
       },
-      emailSent: emailResult.success,
+      emailSent: emailResult?.success ?? false,
     })
   } catch (error) {
     console.error('Booking error:', error)

@@ -83,10 +83,17 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
 
   const [mode, setMode] = useState<Mode>(initialMode);
   const [step, setStep] = useState(0);
-  const initialFrom = params.get("from") || "Chișinău, Moldova";
   const initialTo = params.get("to") || "";
-  // "+ Rezervare pe cursă" din panou → preselectăm cursa asta (sar la locuri).
+  // Dacă „+"-ul din panou trimite doar destinația Moldova (cursă retur), plecarea
+  // NU poate rămâne default-ul Chișinău — ar ieși Moldova→Moldova, auto-flip-ul
+  // golește destinația și direcția pornește invers. O lăsăm goală: operatorul
+  // alege plecarea doar dintre țările cursei (param `countries`).
+  const initialFrom =
+    params.get("from") ??
+    (getCountryFromValue(initialTo) === "Moldova" ? "" : "Chișinău, Moldova");
+  // "+ Rezervare pe cursă" din panou → preselectăm cursa (tripId) sau ziua (date).
   const initialTripId = params.get("tripId");
+  const initialDate = params.get("date");
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   // Direcția determină ce listă apare la "Plecare din" vs "Destinația".
@@ -125,6 +132,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [payMethod, setPayMethod] = useState<"card" | "cash">("card");
   // Preț manual (doar operator/embedded) — suprascrie totalul calculat.
   const [customPrice, setCustomPrice] = useState<string>("");
+  // Text liber pe bilet (doar operator): suprascrie plecarea/destinația salvate —
+  // ex. adresă exactă de îmbarcare („56593 Horhausen") în loc de orașul din listă.
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
 
   const [person, setPerson] = useState({
     firstName: "",
@@ -231,8 +242,18 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // picker-ul de destinație doar Moldova rămâne vizibilă).
   const fromCountryName = getCountryFromValue(from);
   const toCountryName = getCountryFromValue(to);
-  const fromHide = useMemo(() => complementHide(toCountryName), [toCountryName]);
-  const toHide = useMemo(() => complementHide(fromCountryName), [fromCountryName]);
+  // Restricție „+ Rezervare pe cursă": doar țările pe care le deservește cursa
+  // aleasă (ex. DAW 777 = Belgia/Germania — Anglia nu apare deloc în picker).
+  // Moldova nu e niciodată ascunsă. Fără param `countries` → nicio restricție.
+  const lockHide = useMemo(() => {
+    const raw = params.get("countries");
+    if (!raw) return [] as string[];
+    const allowed = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (allowed.length === 0) return [] as string[];
+    return destinations.map((d) => d.name).filter((n) => !allowed.includes(n));
+  }, [params]);
+  const fromHide = useMemo(() => [...complementHide(toCountryName), ...lockHide], [toCountryName, lockHide]);
+  const toHide = useMemo(() => [...complementHide(fromCountryName), ...lockHide], [fromCountryName, lockHide]);
 
   // Auto-flip pe `to` dacă userul a schimbat `from` și combinația devine
   // ilegală (ambele MD sau ambele străine). Picker-ul `to` va auto-selecta
@@ -428,7 +449,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       // afișat e 0. Destinatarul rămâne opțional prin design (se coordonează
       // telefonic — vezi comentariul din PartyForm).
       if (step === 0) return !!from.trim() && !!to.trim();
-      if (step === 1) return !!sender.name.trim() && !!sender.phone.trim() && !!sender.email.trim();
+      // Operatorul poate crea rezervări fără email (mulți clienți nu au).
+      if (step === 1) return !!sender.name.trim() && !!sender.phone.trim() && (embedded || !!sender.email.trim());
       if (step === 3) return (parseFloat(parcel.weight) || 0) > 0;
       return true;
     }
@@ -443,6 +465,19 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
     }
     if (step === 1 && trip === "return") {
       return !!returnTripId && returnSeats.length === passengers;
+    }
+    // Pasul Pasageri: nume + prenume + telefon obligatorii (serverul oricum
+    // respinge fără ele — nu lăsăm operatorul/clientul să ajungă la Plată degeaba).
+    // Email obligatoriu doar pe site; operatorul poate să nu-l aibă.
+    if ((step === 1 && trip === "one") || (step === 2 && trip === "return")) {
+      const extras = extraPassengers.slice(0, Math.max(0, passengers - 1));
+      return (
+        !!person.firstName.trim() &&
+        !!person.lastName.trim() &&
+        !!person.phone.trim() &&
+        (embedded || !!person.email.trim()) &&
+        extras.every((p) => !!p.firstName.trim() && !!p.lastName.trim())
+      );
     }
     return true;
   })();
@@ -468,8 +503,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
           ? {
               type: "passenger",
               tripType: trip === "return" ? "round-trip" : "one-way",
-              departureCity: fromCityName,
-              arrivalCity: toCityName,
+              // Operatorul poate personaliza textul de pe bilet (adresă exactă).
+              departureCity: embedded && customFrom.trim() ? customFrom.trim() : fromCityName,
+              arrivalCity: embedded && customTo.trim() ? customTo.trim() : toCityName,
               departureDate: date,
               returnDate: trip === "return" ? returnDate : undefined,
               firstName: firstNameCombined,
@@ -489,8 +525,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               type: "parcel",
               // Sursă unică pentru oraș: pasul Direcție (from/to). Orașul
               // expeditorului / destinatarului din PartyForm e doar fallback.
-              departureCity: fromCityName || sender.city,
-              arrivalCity: toCityName || recipient.city,
+              // Operatorul poate suprascrie cu text liber (adresă exactă).
+              departureCity: embedded && customFrom.trim() ? customFrom.trim() : (fromCityName || sender.city),
+              arrivalCity: embedded && customTo.trim() ? customTo.trim() : (toCityName || recipient.city),
               // Data + ora coletului = plecarea cursei pe care a ales-o.
               // Cădere pe data dintr-un input liber doar dacă userul (rare!)
               // n-a putut alege o cursă (rută fără program activ). Data locală,
@@ -596,10 +633,16 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               selectedTripId={outboundTripId}
                               selectedSeats={outboundSeats}
                               autoSelectTripId={initialTripId}
+                              // Ziua venită din „+ Rezervare pe cursă" — selectăm automat
+                              // cursa din acea zi imediat ce operatorul alege orașul.
+                              autoSelectDate={embedded ? initialDate : null}
                               // Operator: după ce cursa e aleasă (auto din „+ Rezervare pe
                               // cursă" sau manual), ascunde calendarul — a ales deja data,
                               // nu i-l mai arătăm la fiecare pas. Buton „Schimbă data" dacă vrea.
                               collapsible={embedded}
+                              // Operator: fără grila mare de calendar — listă simplă de
+                              // date ca text („Duminică 12 iulie · 11:00").
+                              compact={embedded}
                               onSelect={(tripId, seats, tripInfo) => {
                                 setOutboundTripId(tripId);
                                 setOutboundSeats(seats);
@@ -639,6 +682,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           // (a ales deja data dus). Publicul își alege liber returul.
                           autoSelectFirst={embedded}
                           collapsible={embedded}
+                          compact={embedded}
                           // Returul are direcția inversă față de cursul dus —
                           // dacă userul a luat dus MD→EU, returul e EU→MD = ziua de retur.
                           allowedWeekday={
@@ -682,6 +726,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           customPrice={customPrice}
                           onCustomPrice={setCustomPrice}
                           currency={currency}
+                          customFrom={customFrom}
+                          customTo={customTo}
+                          onCustomFrom={setCustomFrom}
+                          onCustomTo={setCustomTo}
+                          defaultFrom={fromCityName}
+                          defaultTo={toCityName}
                         />
                       )}
                     </>
@@ -716,6 +766,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               selectedTripId={outboundTripId}
                               selectedSeats={[]}
                               parcelMode
+                              collapsible={embedded}
+                              compact={embedded}
                               onSelect={(tripId, _seats, tripInfo) => {
                                 setOutboundTripId(tripId);
                                 if (tripInfo !== undefined) setOutboundTripInfo(tripInfo ?? null);
@@ -748,6 +800,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           customPrice={customPrice}
                           onCustomPrice={setCustomPrice}
                           currency={currency}
+                          customFrom={customFrom}
+                          customTo={customTo}
+                          onCustomFrom={setCustomFrom}
+                          onCustomTo={setCustomTo}
+                          defaultFrom={fromCityName}
+                          defaultTo={toCityName}
                         />
                       )}
                     </>
@@ -1341,6 +1399,12 @@ function PaymentStep({
   customPrice = "",
   onCustomPrice,
   currency = "€",
+  customFrom = "",
+  customTo = "",
+  onCustomFrom,
+  onCustomTo,
+  defaultFrom = "",
+  defaultTo = "",
 }: {
   mode: Mode;
   lines: { label: string; value: string }[];
@@ -1351,6 +1415,14 @@ function PaymentStep({
   customPrice?: string;
   onCustomPrice?: (v: string) => void;
   currency?: string;
+  /** Personalizare operator: text liber pe bilet pentru plecare/destinație
+   *  (ex. adresă exactă de îmbarcare). Gol = orașele alese în pasul Direcție. */
+  customFrom?: string;
+  customTo?: string;
+  onCustomFrom?: (v: string) => void;
+  onCustomTo?: (v: string) => void;
+  defaultFrom?: string;
+  defaultTo?: string;
 }) {
   const moment = mode === "bilet" ? "îmbarcare" : "livrare";
   return (
@@ -1406,6 +1478,33 @@ function PaymentStep({
                 resetează
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {embedded && onCustomFrom && onCustomTo && (
+        <div className="mt-4 rounded-xl border-2 border-dashed border-[color:var(--navy-500)] bg-[color:var(--navy-50)] p-4">
+          <label className="block text-[11px] font-bold uppercase tracking-widest text-[color:var(--navy-700)]">
+            Adresă personalizată pe bilet (opțional)
+          </label>
+          <p className="mt-1 text-xs text-[color:var(--ink-500)]">
+            Scrie orice — adresă exactă, punct de îmbarcare. Gol = orașele alese la pasul Direcție.
+          </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            <input
+              type="text"
+              value={customFrom}
+              onChange={(e) => onCustomFrom(e.target.value)}
+              placeholder={defaultFrom ? `Plecare: ${defaultFrom}` : "Plecare (text liber)"}
+              className="rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
+            <input
+              type="text"
+              value={customTo}
+              onChange={(e) => onCustomTo(e.target.value)}
+              placeholder={defaultTo ? `Destinație: ${defaultTo}` : "Destinație (text liber)"}
+              className="rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
           </div>
         </div>
       )}

@@ -52,7 +52,7 @@ export type TripGroupData = {
   seatsTaken: number;
   dayKey: string;
   multi: boolean;
-  add: { tripId?: string; from?: string; to?: string };
+  add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };
   tripIds: string[];
   bookings: BookingRow[];
 };
@@ -254,15 +254,29 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       }, 0);
 
       const memberTripIds = g.tripIds;
-      if (memberTripIds.length === 1 && origins.length === 1 && dests.length === 1) {
-        g.add = { tripId: memberTripIds[0], from: [...g._originsFull][0], to: [...g._destsFull][0] };
-      } else if (dests.length === 1) {
-        g.add = { to: [...g._destsFull][0] };
-      } else if (origins.length === 1) {
-        g.add = { from: [...g._originsFull][0] };
-      } else {
-        g.add = {};
-      }
+      // Prefill complet pentru „+ Rezervare pe cursă": direcția, DATA și ȚĂRILE
+      // cursei. Fără astea, o cursă retur multi-oraș (Belgia,Germania → Chișinău)
+      // trimitea doar to=Chișinău → formularul pornea greșit Moldova→gol, cu
+      // direcția inversată și orice țară selectabilă (inclusiv unde autocarul
+      // acestei curse nu merge niciodată).
+      const originCountriesArr = [...g._originCountries];
+      const destCountriesArr = [...g._destCountries];
+      const inboundRun = destCountriesArr.length > 0 && destCountriesArr.every((c) => isMD(c));
+      const outboundRun = originCountriesArr.length > 0 && originCountriesArr.every((c) => isMD(c));
+      const euCountries = inboundRun ? originCountriesArr : outboundRun ? destCountriesArr : [];
+      g.add = {
+        date: dayKey(new Date(g.departureAt)),
+        ...(euCountries.length > 0 ? { countries: euCountries } : {}),
+        ...(memberTripIds.length === 1 ? { tripId: memberTripIds[0] } : {}),
+        // Capete: orașul exact când e unic; altfel doar țara (dacă e una) —
+        // BookingForm derivă direcția corect și dintr-o valoare de tip „doar țară".
+        ...(origins.length === 1
+          ? { from: [...g._originsFull][0] }
+          : inboundRun && euCountries.length === 1 ? { from: euCountries[0] } : {}),
+        ...(dests.length === 1
+          ? { to: [...g._destsFull][0] }
+          : outboundRun && euCountries.length === 1 ? { to: euCountries[0] } : {}),
+      };
 
       const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _memberTrips, ...pub } = g;
       void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _memberTrips;
@@ -309,7 +323,14 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         seatsTaken: 0,
         dayKey: dk,
         multi: false,
-        add: {},
+        // Prefill și pe cursele programate goale: direcția + data + țările rulării.
+        add: {
+          date: dk,
+          countries: [...new Set(run.countries)],
+          ...(run.inbound
+            ? { to: "Chișinău, Moldova", ...(run.countries.length === 1 ? { from: run.countries[0] } : {}) }
+            : { from: "Chișinău, Moldova", ...(run.countries.length === 1 ? { to: run.countries[0] } : {}) }),
+        },
         tripIds: [],
         bookings: [],
       });

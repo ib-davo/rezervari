@@ -17,7 +17,7 @@ export type TripGroup = {
   seatsTaken: number;
   dayKey: string;
   multi: boolean;
-  add: { tripId?: string; from?: string; to?: string };
+  add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };
   tripIds: string[];
   bookings: OperatorBooking[];
 };

@@ -89,7 +89,9 @@ export function TripPicker({
   parcelMode = false,
   autoSelectTripId = null,
   autoSelectFirst = false,
+  autoSelectDate = null,
   collapsible = false,
+  compact = false,
 }: {
   title: string;
   subtitle?: string;
@@ -115,9 +117,14 @@ export function TripPicker({
   /** Selectează automat prima cursă disponibilă când lista s-a încărcat (ex.
    *  cursa retur — operatorul a ales deja data dus, nu re-alege din calendar). */
   autoSelectFirst?: boolean;
+  /** Selectează automat cursa din ziua asta („YYYY-MM-DD", local) — „+ Rezervare
+   *  pe cursă" pe o zi anume: operatorul a ales deja ziua din panou. */
+  autoSelectDate?: string | null;
   /** După selectare, ascunde calendarul și arată doar sumarul + „Schimbă data”.
    *  Evită să re-afișeze calendarul la pasul următor (cerut de operatori). */
   collapsible?: boolean;
+  /** Operator: fără grila mare de calendar — listă simplă de date ca text. */
+  compact?: boolean;
 }) {
   const hasRoute = Boolean(originCityId && destCityId);
   const [trips, setTrips] = useState<PublicTrip[] | null>(null);
@@ -254,6 +261,15 @@ export function TripPicker({
       if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); }
       return;
     }
+    // „+ Rezervare pe cursă" pe o zi anume: selectăm cursa din ziua respectivă
+    // imediat ce operatorul a ales orașul (fără să mai treacă prin calendar).
+    if (autoSelectDate) {
+      const t = (trips ?? []).find(
+        (x) => dayKey(new Date(x.departureAt)) === autoSelectDate && x.availableSeats > 0
+      );
+      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); }
+      return;
+    }
     // Cursa retur: alege automat prima dată disponibilă (operatorul a ales deja
     // data dus — nu-l punem să caute iar în calendar).
     if (autoSelectFirst) {
@@ -262,7 +278,7 @@ export function TripPicker({
     }
     // onSelect e stabil funcțional; nu-l punem în deps ca să nu re-rulăm.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSelectTripId, autoSelectFirst, trips, filteredTrips, selectedTripId]);
+  }, [autoSelectTripId, autoSelectDate, autoSelectFirst, trips, filteredTrips, selectedTripId]);
 
   // Când collapsible + cursă aleasă → ascundem calendarul (arătăm doar sumarul +
   // „Schimbă data”). Utilizatorul poate re-deschide calendarul dacă vrea altă dată.
@@ -317,8 +333,43 @@ export function TripPicker({
           curse-excepție ascunse de filtrul de zi) nu trebuie să pară „fără curse". */}
       {!loading && !error && filteredTrips && filteredTrips.length === 0 && !selectedTripId && <NoTripsCard />}
 
-      {/* Calendarul (grila lunii) — doar când sunt curse ȘI nu e colapsat. */}
-      {!loading && total > 0 && showCalendar && (
+      {/* Alegerea datei — doar când sunt curse ȘI nu e colapsat. Operator
+          (compact): listă simplă de date ca text; public: grila lunii. */}
+      {!loading && total > 0 && showCalendar && (compact ? (
+        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+          {(filteredTrips ?? [])
+            .slice()
+            .sort((a, b) => a.departureAt.localeCompare(b.departureAt))
+            .map((t) => {
+              const dep = new Date(t.departureAt);
+              const active = selectedTripId === t.id;
+              const soldOut = t.availableSeats === 0;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={soldOut && !active}
+                  onClick={() => !soldOut && pickTrip(t)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                    active
+                      ? "border-[color:var(--red-500)] bg-[color:var(--red-500)] text-white"
+                      : soldOut
+                        ? "cursor-not-allowed border-[color:var(--ink-200)] bg-[color:var(--ink-50)] opacity-60"
+                        : "border-[color:var(--ink-200)] bg-white hover:border-[color:var(--red-400)]"
+                  )}
+                >
+                  <span className={cn("text-sm font-bold", active ? "text-white" : "text-[color:var(--navy-900)]")}>
+                    {capitalize(weekdayFmt.format(dep))} · {dateFmt.format(dep)} · {timeFmt.format(dep)}
+                  </span>
+                  <span className={cn("shrink-0 text-xs font-semibold", active ? "text-white/90" : soldOut ? "text-red-600" : "text-[color:var(--ink-500)]")}>
+                    {soldOut ? "Ocupat" : `${t.pricePerSeat}${t.currency === "GBP" ? "£" : "€"} · ${t.availableSeats} libere`}
+                  </span>
+                </button>
+              );
+            })}
+        </div>
+      ) : (
         <div>
           {/* Header calendar: navigare lună + count */}
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -426,7 +477,7 @@ export function TripPicker({
             })}
           </div>
         </div>
-      )}
+      ))}
 
       {/* „Schimbă data" — INDEPENDENT de total>0, ca operatorul să poată redeschide
           calendarul și când cursa selectată e ascunsă de filtrul de zi (curse-excepție). */}

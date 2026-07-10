@@ -417,6 +417,10 @@ function TripCard({ g, onAct, showDay, buses }: {
   if (g.add.tripId) p.set("tripId", g.add.tripId);
   if (g.add.from) p.set("from", g.add.from);
   if (g.add.to) p.set("to", g.add.to);
+  // Data cursei → formularul selectează automat ziua (fără calendar);
+  // țările → restrânge alegerea la țările pe care chiar le deservește cursa.
+  if (g.add.date) p.set("date", g.add.date);
+  if (g.add.countries?.length) p.set("countries", g.add.countries.join(","));
   const addHref = `/panou/rezervare${p.toString() ? `?${p.toString()}` : ""}`;
 
   // Cursă PROGRAMATĂ GOALĂ (autobuz în ziua asta, fără rezervări) — card mut, doar
