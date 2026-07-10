@@ -39,6 +39,8 @@ const RETRY_DELAY_MS = 15 * 60 * 1000;
 export async function enqueueForBooking(bookingId: string) {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { enqueued: 0 };
+  // Rezervările de operator pot fi fără email — n-avem cui trimite.
+  if (!booking.email) return { enqueued: 0 };
 
   const existing = await prisma.emailJob.findMany({
     where: { bookingId, status: { notIn: ["cancelled", "failed"] } },
@@ -76,6 +78,8 @@ export async function enqueueForBooking(bookingId: string) {
 export async function enqueueRemindersOnly(bookingId: string) {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { enqueued: 0 };
+  // Rezervările de operator pot fi fără email — n-avem cui trimite reminderul.
+  if (!booking.email) return { enqueued: 0 };
 
   const existing = await prisma.emailJob.findMany({
     where: { bookingId, status: { notIn: ["cancelled", "failed"] } },
@@ -108,6 +112,9 @@ export async function cancelForBooking(bookingId: string, sendCancellationEmail 
   });
 
   if (sendCancellationEmail) {
+    // Fără email (rezervare de operator) nu avem cui trimite anularea.
+    const bk = await prisma.booking.findUnique({ where: { id: bookingId }, select: { email: true } });
+    if (!bk?.email) return;
     // Deduplicăm doar pe job-urile ÎN AȘTEPTARE. Un job "sent" istoric nu
     // trebuie să suprime emailul unei a doua anulări (cancel → re-confirm →
     // cancel din nou); dublurile în cadrul aceleiași anulări sunt oprite de

@@ -385,14 +385,23 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
           <h2 className="text-xl font-extrabold text-[color:var(--navy-900)]">Rezervare creată</h2>
           <p className="mt-1 text-sm text-[color:var(--ink-500)]">
             Nr. <span className="font-mono font-bold text-[color:var(--navy-900)]">{result.bookingNumber}</span> ·
-            {" "}{result.price}{result.currency === "GBP" ? "£" : "€"} · email trimis clientului
+            {" "}{result.price}{result.currency === "GBP" ? "£" : "€"}
+            {(mode === "bilet" ? person.email.trim() : sender.email.trim()) ? " · email trimis clientului" : " · fără email (nu s-a trimis confirmare)"}
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
             <Link href="/panou" className="inline-flex items-center gap-2 rounded-full bg-[color:var(--navy-900)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110">
               Înapoi la panou
             </Link>
             <button
-              onClick={() => { setResult(null); setStep(0); }}
+              onClick={() => {
+                setResult(null);
+                setStep(0);
+                // Personalizările sunt per-rezervare — altfel adresa/prețul vechi
+                // s-ar aplica silențios la următoarea rezervare a operatorului.
+                setCustomPrice("");
+                setCustomFrom("");
+                setCustomTo("");
+              }}
               className="inline-flex items-center gap-2 rounded-full bg-[color:var(--red-500)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[color:var(--red-600)]"
             >
               Rezervare nouă
@@ -783,7 +792,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           )}
                         </div>
                       )}
-                      {step === 1 && <PartyForm role="Expeditor" data={sender} onChange={setSender} />}
+                      {step === 1 && <PartyForm role="Expeditor" data={sender} onChange={setSender} embedded={embedded} />}
                       {step === 2 && <PartyForm role="Destinatar" data={recipient} onChange={setRecipient} />}
                       {step === 3 && <ParcelForm parcel={parcel} onChange={setParcel} />}
                       {step === 4 && (
@@ -1149,9 +1158,9 @@ function PersonalForm({
               className="simple-input"
             />
           </SimpleField>
-          <SimpleField label="Email *" icon={<Mail className="h-4 w-4" />}>
+          <SimpleField label={embedded ? "Email (opțional)" : "Email *"} icon={<Mail className="h-4 w-4" />}>
             <input
-              required
+              required={!embedded}
               type="email"
               value={person.email}
               onChange={(e) => setField("email", e.target.value)}
@@ -1236,10 +1245,12 @@ function PartyForm({
   role,
   data,
   onChange,
+  embedded = false,
 }: {
   role: "Expeditor" | "Destinatar";
   data: { name: string; phone: string; email: string; city: string; address: string };
   onChange: (d: typeof data) => void;
+  embedded?: boolean;
 }) {
   const setField = (k: keyof typeof data, v: string) => onChange({ ...data, [k]: v });
   // Operatorul confirmă fiecare colet manual (verifică dacă autocarul oprește
@@ -1285,7 +1296,7 @@ function PartyForm({
         </SimpleField>
         {/* Emailul expeditorului e obligatoriu — acolo pleacă confirmarea
             rezervării (serverul respinge fără el). */}
-        <SimpleField label={isSender ? "Email *" : "Email"} icon={<Mail className="h-4 w-4" />}>
+        <SimpleField label={isSender ? (embedded ? "Email (opțional)" : "Email *") : "Email"} icon={<Mail className="h-4 w-4" />}>
           <input
             required={isSender}
             type="email"
