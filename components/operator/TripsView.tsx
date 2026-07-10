@@ -526,7 +526,10 @@ function TripCard({ g, onAct, showDay, buses }: {
             key={b.id}
             b={b}
             seats={seatsFor(b, g)}
-            showRoute={g.multi}
+            // Arată orașul rezervării când diferă de antetul cursei (ex. antet
+            // „Anglia → Chișinău", dar pasagerul e din Tamworth / merge la Comrat).
+            // Cu modelul hub, orașul specific contează mereu pentru șofer.
+            showRoute={g.multi || cityOnly(b.departureCity) !== g.from || cityOnly(b.arrivalCity) !== g.to}
             canAssign={g.busId === null || !!b.manualBusId}
             buses={buses}
             onAct={onAct}
