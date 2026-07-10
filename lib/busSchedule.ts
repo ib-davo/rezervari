@@ -4,7 +4,8 @@
 //   JOI    → DAW 077  ·  Anglia + Luxemburg + Belgia  (fără Liège)
 //   VINERI → ZNQ 874  ·  Belgia + Olanda + Germania   (tur-retur)
 //   Belgia are DOUĂ plecări/săpt: joi (DAW 077) ȘI vineri (ZNQ 874).
-//   EXCEPȚIE 10 + 12 iul 2026 → DAW 777, tot într-o singură cursă.
+//   EXCEPȚIE 10 + 12 iul 2026 → DAW 777 pentru Belgia/Olanda/Germania (o cursă).
+//   DAW 777 NU merge în Anglia/Luxemburg — acelea rămân pe DAW 077 și pe excepție.
 
 function isMD(c?: string | null): boolean {
   return /moldova/i.test(c ?? "");
@@ -16,6 +17,12 @@ function dk(d: Date): string {
 const DAW777_DATES = new Set(["2026-07-10", "2026-07-12"]);
 export function isDaw777Date(date: Date): boolean {
   return DAW777_DATES.has(dk(date));
+}
+// DAW 777 (Astromega) deservește DOAR Belgia/Olanda/Germania. Nu calcă niciodată
+// în Anglia/Luxemburg — deci excepția nu se aplică acelor țări.
+function daw777Serves(country?: string | null): boolean {
+  const c = (country || "").trim().toLowerCase();
+  return c === "belgia" || c === "olanda" || c === "germania";
 }
 
 // DUS: autobuzul e determinat de ZIUA săptămânii (joi DAW 077, vineri ZNQ 874).
@@ -52,7 +59,8 @@ export function extraOutboundDays(country: string): Array<{ weekday: number; tim
 
 // Autobuzul unei curse concrete, după DATĂ + țări. Excepția 10/12 iul → DAW 777.
 export function busPlateForRun(date: Date, originCountry?: string | null, destCountry?: string | null): string | null {
-  if (isDaw777Date(date)) return "DAW 777";
+  const euCountry = isMD(originCountry) ? destCountry : originCountry;
+  if (isDaw777Date(date) && daw777Serves(euCountry)) return "DAW 777";
   if (isMD(originCountry)) return busPlateForOutboundWeekday(date.getDay()) ?? busPlateForCountry(destCountry ?? "");
   if (isMD(destCountry)) return busPlateForReturn(originCountry ?? "");
   return null;
@@ -84,11 +92,11 @@ export function scheduledRunsForDate(date: Date, countries: CountrySchedule[]): 
   for (const c of countries) {
     if (isMD(c.name)) continue;
     if (c.outboundWeekday === wd) {
-      const plate = exception ? "DAW 777" : (busPlateForOutboundWeekday(wd) ?? busPlateForCountry(c.name));
+      const plate = (exception && daw777Serves(c.name)) ? "DAW 777" : (busPlateForOutboundWeekday(wd) ?? busPlateForCountry(c.name));
       if (plate) addRun("out", plate, c.name, c.outboundTime);
     }
     if (c.returnWeekday === wd) {
-      const plate = exception ? "DAW 777" : busPlateForReturn(c.name);
+      const plate = (exception && daw777Serves(c.name)) ? "DAW 777" : busPlateForReturn(c.name);
       if (plate) addRun("in", plate, c.name, c.returnTime);
     }
     if (!exception) {
