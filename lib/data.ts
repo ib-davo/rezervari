@@ -160,13 +160,24 @@ export const destinations: Destination[] = [
   },
 ];
 
+// Orașe din Moldova ca puncte de îmbarcare/coborâre (Chișinău e adăugat separat
+// în CountryCityPicker). Aceeași listă ca pe davo.md. Toate cursele merg fizic
+// prin Chișinău (hub) — orașele astea sunt opriri pe aceeași cursă, nu rute noi.
 export const moldovanCities: City[] = [
-  { id: "m1", name: "Ialoveni", slug: "ialoveni" },
-  { id: "m2", name: "Hîncești", slug: "hincesti" },
-  { id: "m3", name: "Cimișlia", slug: "cimislia" },
+  { id: "m2", name: "Bălți", slug: "balti" },
+  { id: "m3", name: "Cahul", slug: "cahul" },
   { id: "m4", name: "Comrat", slug: "comrat" },
-  { id: "m5", name: "Balabanu", slug: "balabanu" },
-  { id: "m6", name: "Cahul", slug: "cahul" },
+  { id: "m5", name: "Hîncești", slug: "hincesti" },
+  { id: "m6", name: "Ialoveni", slug: "ialoveni" },
+  { id: "m7", name: "Orhei", slug: "orhei" },
+  { id: "m8", name: "Soroca", slug: "soroca" },
+  { id: "m9", name: "Ungheni", slug: "ungheni" },
+  { id: "m10", name: "Edineț", slug: "edinet" },
+  { id: "m11", name: "Căușeni", slug: "causeni" },
+  { id: "m12", name: "Strășeni", slug: "straseni" },
+  { id: "m13", name: "Cimișlia", slug: "cimislia" },
+  { id: "m14", name: "Drochia", slug: "drochia" },
+  { id: "m15", name: "Fălești", slug: "falesti" },
 ];
 
 export const services: Service[] = [
