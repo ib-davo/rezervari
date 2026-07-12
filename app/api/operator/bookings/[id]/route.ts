@@ -14,6 +14,67 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await req.json();
 
+  // ===== Editare rezervare (anulare parțială + adresă + preț) =====
+  // { edit: { firstName?, lastName?, adults?, departureCity?, arrivalCity?,
+  //           price?, freeSeats?: [{tripId, seatNumber}] } }
+  // Folosit când un pasager dintr-un grup renunță: operatorul îl scoate,
+  // eliberează locul lui (dus + retur) și ajustează prețul/adresa.
+  if (body.edit && typeof body.edit === "object") {
+    const e = body.edit as Record<string, unknown>;
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: { seatBookings: { select: { id: true, tripId: true, seatNumber: true } } },
+    });
+    if (!booking) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
+    if (booking.archivedAt) return NextResponse.json({ success: false, error: "Rezervarea e arhivată" }, { status: 400 });
+    if (booking.status === "cancelled") {
+      return NextResponse.json({ success: false, error: "Rezervarea e anulată — nu se mai editează" }, { status: 400 });
+    }
+
+    const upd: Record<string, unknown> = { updatedAt: new Date() };
+    if (typeof e.firstName === "string" && e.firstName.trim()) upd.firstName = e.firstName.trim();
+    if (typeof e.lastName === "string" && e.lastName.trim()) upd.lastName = e.lastName.trim();
+    if (typeof e.departureCity === "string" && e.departureCity.trim()) upd.departureCity = e.departureCity.trim();
+    if (typeof e.arrivalCity === "string" && e.arrivalCity.trim()) upd.arrivalCity = e.arrivalCity.trim();
+    if (e.adults != null) {
+      const a = Number(e.adults);
+      if (!Number.isInteger(a) || a < 1) {
+        return NextResponse.json({ success: false, error: "Rezervarea trebuie să rămână cu cel puțin 1 pasager" }, { status: 400 });
+      }
+      upd.adults = a;
+    }
+    if (e.price != null) {
+      const p = Number(e.price);
+      if (!Number.isFinite(p) || p < 0) {
+        return NextResponse.json({ success: false, error: "Preț invalid" }, { status: 400 });
+      }
+      upd.price = Math.round(p * 100) / 100;
+    }
+
+    // Locurile de eliberat trebuie să aparțină acestei rezervări.
+    const freeSeats = Array.isArray(e.freeSeats) ? e.freeSeats : [];
+    const toDelete: string[] = [];
+    for (const raw of freeSeats) {
+      const fs = raw as { tripId?: unknown; seatNumber?: unknown };
+      const t = String(fs?.tripId ?? "");
+      const n = Number(fs?.seatNumber);
+      const row = booking.seatBookings.find((s) => s.tripId === t && s.seatNumber === n);
+      if (!row) {
+        return NextResponse.json({ success: false, error: `Locul ${n} nu aparține acestei rezervări` }, { status: 400 });
+      }
+      toDelete.push(row.id);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (toDelete.length > 0) {
+        await tx.seatBooking.deleteMany({ where: { id: { in: toDelete }, bookingId: id } });
+      }
+      await tx.booking.update({ where: { id }, data: upd });
+    });
+
+    return NextResponse.json({ success: true });
+  }
+
   const data: Record<string, unknown> = { updatedAt: new Date() };
 
   if (typeof body.status === "string" && ["pending", "confirmed", "cancelled"].includes(body.status)) {

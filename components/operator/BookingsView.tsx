@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
-  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket,
+  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil,
 } from "lucide-react";
+import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { getSupabase } from "@/lib/supabaseClient";
 import { TripPicker } from "@/components/booking/TripPicker";
 
@@ -402,6 +403,7 @@ function BookingCard({
   onReload: () => void;
 }) {
   const [rescheduling, setRescheduling] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -524,6 +526,12 @@ function BookingCard({
             </ActionBtn>
           )}
           {scope === "active" && !cancelled && (
+            <ActionBtn onClick={() => setEditOpen(true)}
+              className="border border-[color:var(--navy-200,rgba(20,58,122,0.25))] text-[color:var(--navy-700)]">
+              <Pencil className="h-3.5 w-3.5" /> Editează
+            </ActionBtn>
+          )}
+          {scope === "active" && !cancelled && (
             confirmCancel ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 pl-3 pr-1 py-1 text-xs font-semibold text-red-700">
                 Se eliberează locurile — sigur?
@@ -563,6 +571,17 @@ function BookingCard({
         </div>
       )}
       {rescheduling && <RescheduleModal b={b} onClose={() => setRescheduling(false)} onReload={onReload} />}
+      {editOpen && (
+        <EditBookingModal
+          b={b}
+          onClose={() => setEditOpen(false)}
+          onSubmit={async (patch) => {
+            const ok = await onAct(b.id, patch);
+            if (ok) onReload();
+            return ok;
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -5,10 +5,11 @@ import Link from "next/link";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X, Armchair,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown, ChevronLeft, ChevronRight,
-  AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket,
+  AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket, Pencil,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
+import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
 import { bookingPax } from "@/lib/manifestRows";
 
@@ -555,6 +556,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const cancelled = b.status === "cancelled";
   const assignBus = async (busId: string) => {
     setBusy("bus");
@@ -633,6 +635,11 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             className="inline-flex max-w-full items-center gap-1 rounded-full border border-[color:var(--ink-200)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform">
             <Mail className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" /> <span className="truncate">{b.email}</span>
           </a>
+          {!cancelled && (
+            <RowBtn onClick={() => setEditOpen(true)} className="border border-[color:var(--navy-200,rgba(20,58,122,0.2))] bg-[color:var(--navy-50)] text-[color:var(--navy-900)]">
+              <Pencil className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> Editează
+            </RowBtn>
+          )}
           {b.status !== "confirmed" && (
             <RowBtn busy={busy === "confirm"} onClick={() => run("confirm", { status: "confirmed" })} className="bg-emerald-500 text-white">
               <Check className="h-3.5 w-3.5" /> Confirmă
@@ -685,6 +692,10 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             </label>
           )}
         </div>
+      )}
+
+      {editOpen && (
+        <EditBookingModal b={b} onClose={() => setEditOpen(false)} onSubmit={(patch) => onAct(b.id, patch)} />
       )}
     </div>
   );
