@@ -7,6 +7,7 @@ import {
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil,
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
 import { TripPicker } from "@/components/booking/TripPicker";
 
@@ -475,7 +476,7 @@ function BookingCard({
       <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--navy-900)] min-w-0">
           <User className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
-          <span className="min-w-0 truncate">{b.firstName} {b.lastName}</span>
+          <span className="min-w-0 truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
         </span>
         <a
           href={`tel:${b.phone}`}

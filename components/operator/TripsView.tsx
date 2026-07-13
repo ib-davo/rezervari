@@ -12,6 +12,7 @@ import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
 import { bookingPax } from "@/lib/manifestRows";
+import { displayPassengerNames } from "@/lib/passengerNames";
 
 const fmtTime = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" });
 const fmtDayLong = new Intl.DateTimeFormat("ro-RO", { weekday: "long", day: "numeric", month: "long" });
@@ -577,7 +578,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(b.status)}`} title={statusLabel(b.status)} />
-            <span className="text-sm font-bold text-[color:var(--navy-900)] truncate">{b.firstName} {b.lastName}</span>
+            <span className="text-sm font-bold text-[color:var(--navy-900)] truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
             {b.type === "parcel" && <Package className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />}
             {seats.length > 0 && (
               <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-[color:var(--navy-900)]">
