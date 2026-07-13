@@ -122,3 +122,22 @@ export function getReturnWeekday(slug: string): number | null {
   const sched = SCHEDULES[slug];
   return sched ? weekdayFromLabel(sched.returnLabel) : null;
 }
+
+/**
+ * TOATE zilele valide de plecare spre o țară — unele țări pleacă în mai multe
+ * zile pe săptămână. Belgia: JOI cu DAW 077 (împreună cu Anglia) ȘI VINERI cu
+ * ZNQ 874. Filtrul cu o singură zi ascundea cursele de joi din calendar deși
+ * existau în DB.
+ */
+export function getOutboundWeekdays(slug: string): number[] {
+  const base = getOutboundWeekday(slug);
+  const days = base == null ? [] : [base];
+  if (slug === "belgia") days.push(4); // joi · DAW 077 (extraOutboundDays)
+  return [...new Set(days)];
+}
+
+export function getReturnWeekdays(slug: string): number[] {
+  const d = getReturnWeekday(slug);
+  return d == null ? [] : [d];
+}
+

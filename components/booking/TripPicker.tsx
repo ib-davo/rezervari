@@ -101,7 +101,7 @@ export function TripPicker({
   selectedTripId,
   selectedSeats,
   onSelect,
-  allowedWeekday,
+  allowedWeekdays,
   parcelMode = false,
   autoSelectTripId = null,
   autoSelectFirst = false,
@@ -119,10 +119,10 @@ export function TripPicker({
   selectedTripId: string | null;
   selectedSeats: number[];
   onSelect: (tripId: string | null, seats: number[], trip?: PublicTrip | null) => void;
-  /** Filtru defensiv pe FE: 0=duminică, ..., 6=sâmbătă. Dacă e set, ascundem
-   *  cursele care nu cad în ziua respectivă (backend-ul ar trebui să genereze
-   *  doar zilele corecte; filtrul ăsta acoperă date vechi/de test din DB). */
-  allowedWeekday?: number | null;
+  /** Filtru defensiv pe FE: zilele săptămânii permise (0=duminică..6=sâmbătă).
+   *  Unele țări pleacă în MAI MULTE zile (Belgia: joi + vineri) — de-aia listă,
+   *  nu o singură zi. Gol/null = fără filtru. */
+  allowedWeekdays?: number[] | null;
   /** Coletele călătoresc cu autocarul de pasageri — folosesc același calendar
    *  de curse dar nu rezervă scaune. Cu `parcelMode`, ascundem SeatPicker-ul
    *  și nu mai cerem `maxSeats` să fie sincronizat cu nimic. */
@@ -200,9 +200,9 @@ export function TripPicker({
   // programului real al rutei (ex. retur EU→MD trebuie să fie doar duminică
   // pentru Belgia/Olanda/Germania/Anglia).
   const filteredTrips = useMemo(() => {
-    if (!trips || allowedWeekday == null) return trips;
-    return trips.filter((t) => new Date(t.departureAt).getDay() === allowedWeekday);
-  }, [trips, allowedWeekday]);
+    if (!trips || !allowedWeekdays || allowedWeekdays.length === 0) return trips;
+    return trips.filter((t) => allowedWeekdays.includes(new Date(t.departureAt).getDay()));
+  }, [trips, allowedWeekdays]);
 
   const total = filteredTrips?.length ?? 0;
 
