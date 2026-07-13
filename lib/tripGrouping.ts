@@ -33,6 +33,10 @@ export const BOOKING_SELECT = {
   tripId: true,
   returnTripId: true,
   manualBusId: true,
+  notes: true,
+  boardedAt: true,
+  boardedBy: true,
+  baggageSurplus: true,
   seatBookings: { select: { seatNumber: true, tripId: true }, orderBy: { seatNumber: "asc" as const } },
 } as const;
 

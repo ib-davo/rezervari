@@ -52,7 +52,7 @@ async function hmac(message: string, secret: string): Promise<string> {
   return toBase64Url(sig);
 }
 
-export type BookingAction = "confirm" | "cancel";
+export type BookingAction = "confirm" | "cancel" | "review";
 
 export async function createBookingToken(
   bookingNumber: string,
@@ -89,7 +89,7 @@ export async function verifyBookingToken(
     if (parts.length !== 3) return null;
     const [bookingNumber, action, expiresAtRaw] = parts;
     if (!bookingNumber || !action) return null;
-    if (action !== "confirm" && action !== "cancel") return null;
+    if (action !== "confirm" && action !== "cancel" && action !== "review") return null;
     const expiresAt = Number(expiresAtRaw);
     if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return null;
     return { bookingNumber, action: action as BookingAction };

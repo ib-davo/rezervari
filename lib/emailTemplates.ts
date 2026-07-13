@@ -712,6 +712,33 @@ export function adminCountryManifestHtml(d: CountryManifestData): string {
   });
 }
 
+// ----- Cerere de recenzie (2 zile după cursă) -----
+
+export function reviewRequestHtml(b: Booking, reviewUrl: string): string {
+  const body = `
+    ${headline(`${b.firstName}, cum a fost călătoria cu DAVO?`)}
+    ${intro(
+      `Ai călătorit recent pe ruta <strong style="color:${C.navy900};">${b.departureCity} → ${b.arrivalCity}</strong>. ` +
+      `Părerea ta ne ajută enorm — durează 30 de secunde: dai stelele și, dacă vrei, un comentariu.`
+    )}
+    <div style="text-align:center;margin:8px 0 16px;">
+      <a href="${reviewUrl}" style="display:inline-block;background:${C.red500};color:#fff;text-decoration:none;padding:14px 28px;border-radius:999px;font-family:${FONT_DISPLAY};font-weight:800;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;box-shadow:0 14px 28px -12px rgba(225,30,43,0.55);">
+        ⭐ Lasă o recenzie
+      </a>
+    </div>
+    <p style="margin:0;font-family:${FONT_BODY};font-size:12px;color:${C.ink700};line-height:1.6;text-align:center;">
+      Numele și cursa sunt deja completate — tu doar alegi stelele.
+    </p>
+  `;
+  return layout({
+    preheader: "Spune-ne cum a fost călătoria — 30 de secunde",
+    title: "Cum a fost călătoria?",
+    eyebrow: "Recenzie",
+    eyebrowColor: "rgba(255,255,255,0.7)",
+    body,
+  });
+}
+
 export function subjectForType(type: string, bookingNumber: string): string {
   switch (type) {
     case "confirmation":
@@ -720,6 +747,8 @@ export function subjectForType(type: string, bookingNumber: string): string {
       return "Mâine pleci cu DAVO — confirmă-ne că vii";
     case "cancellation":
       return `Rezervare ${bookingNumber} anulată`;
+    case "review_request":
+      return "Cum a fost călătoria cu DAVO? Lasă o recenzie ⭐";
     default:
       return "DAVO Group";
   }

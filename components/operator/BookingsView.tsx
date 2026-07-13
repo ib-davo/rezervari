@@ -39,6 +39,10 @@ export type OperatorBooking = {
   tripId: string | null;
   returnTripId: string | null;
   manualBusId: string | null;
+  notes: string | null;
+  boardedAt: string | null;
+  boardedBy: string | null;
+  baggageSurplus: string | null;
   seatBookings: { seatNumber: number; tripId: string }[];
 };
 
@@ -477,6 +481,11 @@ function BookingCard({
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--navy-900)] min-w-0">
           <User className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
           <span className="min-w-0 truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
+          {b.boardedAt && (
+            <span className="shrink-0 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white" title={`Îmbarcat${b.boardedBy ? ` de ${b.boardedBy}` : ""}`}>
+              Îmbarcat
+            </span>
+          )}
         </span>
         <a
           href={`tel:${b.phone}`}
@@ -485,6 +494,10 @@ function BookingCard({
           <Phone className="h-3.5 w-3.5" /> {b.phone}
         </a>
       </div>
+
+      {/* Notița operatorului + surplus bagaj (de la îmbarcare) */}
+      {b.notes && <div className="mt-1 text-[11px] italic text-[color:var(--ink-700)]">📝 {b.notes}</div>}
+      {b.baggageSurplus && <div className="mt-1 text-[11px] font-semibold text-amber-700">🧳 Surplus bagaj: {b.baggageSurplus}</div>}
 
       {/* Acțiuni — ascunse sub un buton ca să rămână compact; un tap le deschide */}
       <button

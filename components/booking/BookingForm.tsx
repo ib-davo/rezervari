@@ -534,6 +534,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               returnSeatNumbers: trip === "return" ? returnSeats : undefined,
               payMethod,
               customPrice: hasCustomPrice ? customPrice : undefined,
+              // Observațiile se salvează pe rezervare (Booking.notes) — se văd
+              // în panoul operatorilor pe cardul rezervării.
+              note: person.note.trim() || undefined,
             }
           : {
               type: "parcel",

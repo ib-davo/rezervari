@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LogOut, Plus, ListChecks, Archive, ShieldCheck } from "lucide-react";
+import { ScanBoarding } from "@/components/operator/ScanBoarding";
 
 export default function PanouLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -46,6 +47,8 @@ export default function PanouLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Scanner QR îmbarcare — mereu vizibil, în colț */}
+            <ScanBoarding />
             {/* Buton mare doar pe desktop — pe telefon e în bara de jos */}
             <Link
               href="/panou/rezervare"

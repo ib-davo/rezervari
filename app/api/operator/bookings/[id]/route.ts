@@ -75,6 +75,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ success: true });
   }
 
+  // ===== Îmbarcare (scanner QR din panou) =====
+  // { board: { boarded: boolean, baggageSurplus?: string|null, markPaid?: boolean } }
+  if (body.board && typeof body.board === "object") {
+    const bd = body.board as Record<string, unknown>;
+    const bk = await prisma.booking.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!bk) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
+    if (bk.status === "cancelled") {
+      return NextResponse.json({ success: false, error: "Rezervarea e ANULATĂ — nu se îmbarcă" }, { status: 400 });
+    }
+    const upd: Record<string, unknown> = { updatedAt: new Date() };
+    if (bd.boarded === true) {
+      upd.boardedAt = new Date();
+      upd.boardedBy = session.name ?? null;
+    } else if (bd.boarded === false) {
+      upd.boardedAt = null;
+      upd.boardedBy = null;
+    }
+    if (typeof bd.baggageSurplus === "string") upd.baggageSurplus = bd.baggageSurplus.trim() || null;
+    if (bd.baggageSurplus === null) upd.baggageSurplus = null;
+    if (bd.markPaid === true) {
+      upd.paymentStatus = "paid";
+      upd.paidAt = new Date();
+    }
+    await prisma.booking.update({ where: { id }, data: upd });
+    return NextResponse.json({ success: true });
+  }
+
   const data: Record<string, unknown> = { updatedAt: new Date() };
 
   if (typeof body.status === "string" && ["pending", "confirmed", "cancelled"].includes(body.status)) {

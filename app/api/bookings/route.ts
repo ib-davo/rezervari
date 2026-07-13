@@ -209,6 +209,7 @@ export async function POST(request: NextRequest) {
             firstName: body.firstName,
             lastName: body.lastName,
             email: body.email || '',
+            notes: typeof body.note === 'string' && body.note.trim() ? body.note.trim() : null,
             phone: body.phone,
             adults: adults || 1,
             children,

@@ -579,6 +579,11 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(b.status)}`} title={statusLabel(b.status)} />
             <span className="text-sm font-bold text-[color:var(--navy-900)] truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
+            {b.boardedAt && (
+              <span className="shrink-0 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white" title={`Îmbarcat${b.boardedBy ? ` de ${b.boardedBy}` : ""}`}>
+                Îmbarcat
+              </span>
+            )}
             {b.type === "parcel" && <Package className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />}
             {seats.length > 0 && (
               <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-[color:var(--navy-900)]">
@@ -594,6 +599,13 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
               <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--red-400)]" />
               <span className="truncate">{cityOnly(b.arrivalCity)}</span>
             </div>
+          )}
+          {/* Notița operatorului (Observații) + surplus bagaj de la îmbarcare */}
+          {b.notes && (
+            <div className="mt-0.5 text-[11px] italic text-[color:var(--ink-700)]">📝 {b.notes}</div>
+          )}
+          {b.baggageSurplus && (
+            <div className="mt-0.5 text-[11px] font-semibold text-amber-700">🧳 Surplus bagaj: {b.baggageSurplus}</div>
           )}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[color:var(--ink-500)]">
             <span className="font-mono">{b.bookingNumber}</span>

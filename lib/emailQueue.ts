@@ -4,10 +4,11 @@ import { sendBookingConfirmation, getResend } from "@/lib/email";
 import {
   reminder24hHtml,
   cancellationHtml,
+  reviewRequestHtml,
   subjectForType,
 } from "@/lib/emailTemplates";
 import { createBookingToken, bookingResponseUrl } from "@/lib/bookingToken";
-import { appUrl as resolveAppUrl } from "@/lib/appUrl";
+import { appUrl as resolveAppUrl, publicAppUrl } from "@/lib/appUrl";
 import { dayBeforeAtLocal } from "@/lib/schedule";
 
 async function buildResponseUrls(bookingNumber: string) {
@@ -61,6 +62,12 @@ export async function enqueueForBooking(bookingId: string) {
   if (!have.has("reminder_24h") && dep24 > now) {
     jobs.push({ type: "reminder_24h", sendAt: dep24, status: "scheduled" });
   }
+  // Recenzie: la 2 zile după ultima etapă a călătoriei (retur dacă există).
+  const lastLeg = booking.returnDate ?? booking.departureDate;
+  const reviewAt = new Date(new Date(lastLeg).getTime() + 2 * 24 * 3600 * 1000);
+  if (booking.type !== "parcel" && !have.has("review_request") && reviewAt > now) {
+    jobs.push({ type: "review_request", sendAt: reviewAt, status: "scheduled" });
+  }
 
   if (jobs.length === 0) return { enqueued: 0 };
 
@@ -94,6 +101,12 @@ export async function enqueueRemindersOnly(bookingId: string) {
   const jobs: Array<{ type: string; sendAt: Date; status: string; bookingId: string }> = [];
   if (!have.has("reminder_24h") && dep24 > now) {
     jobs.push({ type: "reminder_24h", sendAt: dep24, status: "scheduled", bookingId });
+  }
+  // Recenzie: la 2 zile după ultima etapă a călătoriei (retur dacă există).
+  const lastLeg = booking.returnDate ?? booking.departureDate;
+  const reviewAt = new Date(new Date(lastLeg).getTime() + 2 * 24 * 3600 * 1000);
+  if (booking.type !== "parcel" && !have.has("review_request") && reviewAt > now) {
+    jobs.push({ type: "review_request", sendAt: reviewAt, status: "scheduled", bookingId });
   }
   if (jobs.length > 0) {
     await prisma.emailJob.createMany({ data: jobs });
@@ -270,6 +283,11 @@ async function sendJob(job: EmailJob & { booking: Booking }) {
     const { resolveScheduledTimes } = await import("@/lib/scheduledTime");
     const scheduled = await resolveScheduledTimes(booking);
     html = reminder24hHtml(booking, urls, scheduled.departureTime ?? null);
+  } else if (type === "review_request") {
+    // Link cu token → /recenzie cu numele + cursa precompletate.
+    const token = await createBookingToken(booking.bookingNumber, "review", 120 * 24 * 3600 * 1000);
+    const reviewUrl = `${publicAppUrl()}/recenzie?nr=${encodeURIComponent(booking.bookingNumber)}&t=${encodeURIComponent(token)}`;
+    html = reviewRequestHtml(booking, reviewUrl);
   } else {
     html = cancellationHtml(booking);
   }
