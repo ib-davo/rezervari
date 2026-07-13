@@ -7,7 +7,7 @@ import { occupiedSeatsForRun } from '@/lib/runSeats'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 import { enqueueRemindersOnly } from '@/lib/emailQueue'
 import { createBookingToken, bookingResponseUrl } from '@/lib/bookingToken'
-import { appUrl as resolveAppUrl } from '@/lib/appUrl'
+import { publicAppUrl } from '@/lib/appUrl'
 import { verifyOperatorToken, OPERATOR_COOKIE } from '@/lib/operatorSession'
 import type { SeatLayout } from '@/lib/adminMock'
 
@@ -260,7 +260,9 @@ export async function POST(request: NextRequest) {
       throw error
     }
 
-    const appUrl = resolveAppUrl()
+    // Linkurile din email (bilet/confirm/anulare/tracking) sunt pentru CLIENT —
+    // întotdeauna davo.md, nu domeniul panoului (unde proxy-ul cere PIN).
+    const appUrl = publicAppUrl()
     const ticketUrl = `${appUrl}/bilet/${booking.bookingNumber}`
 
     await prisma.booking.update({

@@ -8,11 +8,12 @@ import {
   subjectForType,
 } from "@/lib/emailTemplates";
 import { createBookingToken, bookingResponseUrl } from "@/lib/bookingToken";
-import { appUrl as resolveAppUrl, publicAppUrl } from "@/lib/appUrl";
+import { publicAppUrl } from "@/lib/appUrl";
 import { dayBeforeAtLocal } from "@/lib/schedule";
 
 async function buildResponseUrls(bookingNumber: string) {
-  const appUrl = resolveAppUrl();
+  // Linkuri pentru CLIENT → întotdeauna davo.md (nu panoul cu PIN).
+  const appUrl = publicAppUrl();
   try {
     const [confirmToken, cancelToken] = await Promise.all([
       createBookingToken(bookingNumber, "confirm"),

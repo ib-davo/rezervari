@@ -39,13 +39,9 @@ export function appUrl(): string {
  */
 export function publicAppUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  if (explicit && !explicit.includes("localhost")) return explicit;
-
-  const prodHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (prodHost) return `https://${prodHost}`;
-
-  const deployHost = process.env.VERCEL_URL;
-  if (deployHost) return `https://${deployHost}`;
-
+  // Acest deployment e PANOUL operatorilor (rezervari.davo.md) — publicul e
+  // ÎNTOTDEAUNA davo.md. Nu cădem pe VERCEL_URL (ar da rezervari.davo.md, unde
+  // proxy-ul cu PIN îi dădea clientului „Unauthorized" la Confirm din email).
+  if (explicit && !explicit.includes("localhost") && !explicit.includes("rezervari")) return explicit;
   return "https://davo.md";
 }

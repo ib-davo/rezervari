@@ -11,9 +11,23 @@ function isPublic(pathname: string): boolean {
     pathname.startsWith("/api/operator/login") ||
     pathname.startsWith("/api/operator/list") ||
     pathname.startsWith("/api/cron") ||
+    // Linkuri din emailurile clienților (Confirm/Anulez, QR bilet) — publice.
+    // Emailurile vechi pointau spre acest domeniu; fără astea, clientul primea
+    // „Unauthorized" la Confirm. Securitatea vine din tokenul HMAC, nu din PIN.
+    pathname.startsWith("/api/bookings/respond") ||
+    pathname.startsWith("/api/tickets") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     /\.[a-zA-Z0-9]+$/.test(pathname)
+  );
+}
+
+// Pagini de CLIENT (din emailuri): biletul + tracking-ul. Nu cer PIN, dar
+// primesc rescrierea /ro ca restul site-ului (sunt sub [lang]).
+function isPublicPage(pathname: string): boolean {
+  return (
+    pathname.startsWith("/bilet") ||
+    pathname.startsWith("/livrare")
   );
 }
 
@@ -43,19 +57,21 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
-  if (!session) {
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  if (!isPublicPage(pathname)) {
+    const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
+    if (!session) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      }
+      const url = new URL("/panou/login", req.url);
+      if (pathname !== "/") url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
     }
-    const url = new URL("/panou/login", req.url);
-    if (pathname !== "/") url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
-  }
 
-  // Operator autentificat.
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL("/panou", req.url));
+    // Operator autentificat.
+    if (pathname === "/") {
+      return NextResponse.redirect(new URL("/panou", req.url));
+    }
   }
 
   if (shouldSkipLocale(pathname)) {
