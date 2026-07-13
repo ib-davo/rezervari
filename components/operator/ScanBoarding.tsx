@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Armchair, Check, Loader2, QrCode, RotateCcw, X } from "lucide-react";
 import jsQR from "jsqr";
 import { displayPassengerNames } from "@/lib/passengerNames";
@@ -48,7 +49,10 @@ export function ScanBoarding() {
         <QrCode className="h-4 w-4 text-[color:var(--red-500)]" />
         <span className="hidden sm:inline">Scan</span>
       </button>
-      {open && <ScanModal onClose={() => setOpen(false)} />}
+      {/* Portal în <body>: butonul stă în header (sticky, z-30) — randat acolo,
+          modalul ar fi prizonier în contextul de stacking al header-ului și
+          pagina s-ar desena PESTE el. */}
+      {open && typeof document !== "undefined" && createPortal(<ScanModal onClose={() => setOpen(false)} />, document.body)}
     </>
   );
 }
