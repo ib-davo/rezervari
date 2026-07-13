@@ -98,9 +98,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       });
     });
 
-    // Reprogramează reminderele (cele vechi erau calculate pe data veche).
+    // Reprogramează reminderele + cererea de recenzie (cele vechi erau calculate
+    // pe data veche — altfel „Cum a fost călătoria?" pleca ÎNAINTE de călătorie).
     await prisma.emailJob
-      .updateMany({ where: { bookingId: id, type: { in: ["reminder_24h", "reminder_2h"] }, status: { in: ["scheduled", "queued"] } }, data: { status: "cancelled" } })
+      .updateMany({ where: { bookingId: id, type: { in: ["reminder_24h", "reminder_2h", "review_request"] }, status: { in: ["scheduled", "queued"] } }, data: { status: "cancelled" } })
       .catch(() => {});
     await enqueueRemindersOnly(id).catch((e) => console.error("enqueueReminders after reschedule:", e));
 

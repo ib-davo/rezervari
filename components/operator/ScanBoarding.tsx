@@ -63,6 +63,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [booking, setBooking] = useState<ScanBooking | null>(null);
   const [surplus, setSurplus] = useState(false);
+  const [surplusKg, setSurplusKg] = useState("");
   const [surplusNote, setSurplusNote] = useState("");
   const [markPaid, setMarkPaid] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -89,6 +90,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
       const b: ScanBooking = d.booking;
       setBooking(b);
       setSurplus(!!b.baggageSurplus);
+      setSurplusKg("");
       setSurplusNote(b.baggageSurplus ?? "");
       setMarkPaid(false);
       setDone(false);
@@ -121,20 +123,26 @@ function ScanModal({ onClose }: { onClose: () => void }) {
         video.srcObject = stream;
         await video.play();
 
+        // QR care a eșuat deja (bilet inexistent) — nu-l re-căutăm în buclă.
+        let lastFailedCode = "";
+        let busy = false;
         const tick = async () => {
           if (cancelled || !videoRef.current || !ctx) return;
           const v = videoRef.current;
-          if (v.readyState === v.HAVE_ENOUGH_DATA) {
+          if (!busy && v.readyState === v.HAVE_ENOUGH_DATA) {
             canvas.width = v.videoWidth;
             canvas.height = v.videoHeight;
             ctx.drawImage(v, 0, 0);
             const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-            if (code?.data && /DAVO-\d{4}-[A-Z0-9]+/i.test(code.data)) {
-              stopCamera();
+            if (code?.data && code.data !== lastFailedCode && /DAVO-\d{4}-[A-Z0-9]+/i.test(code.data)) {
+              // Oprim camera DOAR după un lookup reușit — altfel continuăm scanarea
+              // live (biletul poate fi greșit/inexistent, se arată eroarea o dată).
+              busy = true;
               const ok = await lookup(code.data);
-              if (!ok && !cancelled) rafRef.current = requestAnimationFrame(tick);
-              return;
+              busy = false;
+              if (ok) { stopCamera(); return; }
+              lastFailedCode = code.data;
             }
           }
           rafRef.current = requestAnimationFrame(tick);
@@ -151,10 +159,25 @@ function ScanModal({ onClose }: { onClose: () => void }) {
     };
   }, [booking, lookup, stopCamera]);
 
+  // Surplus: kg în plus × 1.5 în valuta cursei (GBP pe rutele Anglia, EUR altfel).
+  const sym = booking?.currency === "GBP" ? "£" : "€";
+  const surplusPrice = (() => {
+    const kg = parseFloat(surplusKg);
+    if (!Number.isFinite(kg) || kg <= 0) return null;
+    return Math.round(kg * 1.5 * 100) / 100;
+  })();
+
   const confirmBoarding = async () => {
     if (!booking) return;
     setSaving(true);
     setError(null);
+    const kg = parseFloat(surplusKg);
+    const surplusText = surplus
+      ? [
+          Number.isFinite(kg) && kg > 0 ? `+${kg} kg · ${surplusPrice}${sym}` : "peste limită",
+          surplusNote.trim() || null,
+        ].filter(Boolean).join(" · ")
+      : null;
     try {
       const res = await fetch(`/api/operator/bookings/${booking.id}`, {
         method: "PATCH",
@@ -162,7 +185,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           board: {
             boarded: true,
-            baggageSurplus: surplus ? surplusNote.trim() || "peste limită" : null,
+            baggageSurplus: surplusText,
             markPaid,
           },
         }),
@@ -198,6 +221,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
     setError(null);
     setManual("");
     setSurplus(false);
+    setSurplusKg("");
     setSurplusNote("");
     setMarkPaid(false);
   };
@@ -208,9 +232,12 @@ function ScanModal({ onClose }: { onClose: () => void }) {
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => { stopCamera(); onClose(); }}>
+    // overflow pe overlay + min-h-full pe wrapper: modalul stă centrat când e
+    // scurt și derulează FĂRĂ să-i taie partea de sus când e mai înalt ca ecranul.
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60" onClick={() => { stopCamera(); onClose(); }}>
+      <div className="flex min-h-full items-center justify-center p-4">
       <div
-        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 shadow-xl"
+        className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3">
@@ -311,13 +338,33 @@ function ScanModal({ onClose }: { onClose: () => void }) {
                   </span>
                 </label>
                 {surplus && (
-                  <textarea
-                    value={surplusNote}
-                    onChange={(e) => setSurplusNote(e.target.value)}
-                    placeholder="ex: +8kg cală, achitat 10€ / de achitat la destinație"
-                    rows={2}
-                    className="w-full rounded-lg border border-[color:var(--ink-300)] px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
-                  />
+                  <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.5"
+                        value={surplusKg}
+                        onChange={(e) => setSurplusKg(e.target.value)}
+                        placeholder="kg în plus"
+                        className="w-28 rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-base font-bold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                      />
+                      <span className="text-sm font-semibold text-[color:var(--ink-700)]">kg</span>
+                      {surplusPrice != null && (
+                        <span className="ml-auto rounded-full bg-white px-3 py-1 text-sm font-extrabold text-[color:var(--navy-900)]">
+                          = {surplusPrice}{sym}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] font-semibold text-amber-700">1.5{sym}/kg peste limită</div>
+                    <input
+                      value={surplusNote}
+                      onChange={(e) => setSurplusNote(e.target.value)}
+                      placeholder="notă (opțional): achitat cash / de achitat la destinație"
+                      className="w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                    />
+                  </div>
                 )}
                 {booking.paymentStatus !== "paid" && (
                   <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[color:var(--ink-200)] p-3">
@@ -359,6 +406,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
