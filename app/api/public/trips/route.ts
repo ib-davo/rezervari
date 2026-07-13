@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { arrivalFor, nextDepartures } from "@/lib/schedule";
 import { busPlateForCountry, extraOutboundDays } from "@/lib/busSchedule";
+import { runKey } from "@/lib/runSeats";
 
 const HORIZON_WEEKS = 16;
 const DEFAULT_LIMIT = 30;
@@ -264,9 +265,28 @@ export async function GET(req: NextRequest) {
         arrivalAt: true,
         status: true,
         bus: { select: { id: true, label: true, plate: true, totalSeats: true } },
-        _count: { select: { seatBookings: true } },
       },
     });
+
+    // Ocuparea pe RULAREA fizică (toate trip-urile aceluiași autobuz din aceeași
+    // zi), nu doar pe trip-ul rutei curente: locul vândut pe Bruxelles→Chișinău
+    // ocupă autocarul și pentru Gent→Chișinău. Numărăm locurile DISTINCTE pe
+    // (bus, zi) dintr-o singură interogare pentru toate cursele listate.
+    const runBooked = new Map<string, Set<number>>();
+    if (trips.length > 0) {
+      const busIds = [...new Set(trips.map((t) => t.bus.id))];
+      const minDep = new Date(Math.min(...trips.map((t) => t.departureAt.getTime())) - 12 * 3600_000);
+      const maxDep = new Date(Math.max(...trips.map((t) => t.departureAt.getTime())) + 12 * 3600_000);
+      const rows = await prisma.seatBooking.findMany({
+        where: { trip: { busId: { in: busIds }, departureAt: { gte: minDep, lte: maxDep } } },
+        select: { seatNumber: true, trip: { select: { busId: true, departureAt: true } } },
+      });
+      for (const r of rows) {
+        const k = runKey(r.trip.busId, r.trip.departureAt);
+        if (!runBooked.has(k)) runBooked.set(k, new Set());
+        runBooked.get(k)!.add(r.seatNumber);
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -276,7 +296,7 @@ export async function GET(req: NextRequest) {
         currency: route.currency,
       },
       trips: trips.map((t) => {
-        const booked = t._count.seatBookings;
+        const booked = runBooked.get(runKey(t.bus.id, t.departureAt))?.size ?? 0;
         return {
           id: t.id,
           departureAt: t.departureAt.toISOString(),

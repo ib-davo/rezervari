@@ -6,6 +6,7 @@ import { enqueueRemindersOnly } from '@/lib/emailQueue'
 import { createBookingToken, bookingResponseUrl } from '@/lib/bookingToken'
 import { appUrl as resolveAppUrl } from '@/lib/appUrl'
 import { verifyToken, COOKIE_NAME } from '@/lib/session'
+import { occupiedSeatsForRun } from '@/lib/runSeats'
 
 export async function GET(request: NextRequest) {
   try {
@@ -106,13 +107,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: 'Cursa selectată nu există' }, { status: 400 })
       }
       if (seatNumbers.length > 0) {
-        const taken = await prisma.seatBooking.findMany({
-          where: { tripId, seatNumber: { in: seatNumbers } },
-          select: { seatNumber: true },
-        })
-        if (taken.length > 0) {
+        // Pe ÎNTREAGA rulare fizică (toate trip-urile autobuzului din ziua aia),
+        // nu doar pe trip-ul rutei — vezi lib/runSeats.
+        const occ = new Set(await occupiedSeatsForRun(tripId))
+        const conflict = seatNumbers.filter((n: number) => occ.has(n))
+        if (conflict.length > 0) {
           return NextResponse.json(
-            { success: false, error: `Locurile ${taken.map((t) => t.seatNumber).join(', ')} sunt deja rezervate` },
+            { success: false, error: `Locurile ${conflict.join(', ')} sunt deja rezervate` },
             { status: 409 }
           )
         }

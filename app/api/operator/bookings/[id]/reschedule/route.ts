@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { sendRescheduleConfirmation } from "@/lib/email";
 import { enqueueRemindersOnly } from "@/lib/emailQueue";
+import { occupiedSeatsForRun } from "@/lib/runSeats";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -64,11 +65,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // actuale ale ACESTEI rezervări, care oricum se eliberează).
     const checkSeatsFree = async (tripId: string, seats: number[]) => {
       if (seats.length === 0) return true;
-      const taken = await prisma.seatBooking.findMany({
-        where: { tripId, seatNumber: { in: seats }, bookingId: { not: id } },
-        select: { seatNumber: true },
-      });
-      return taken.length === 0;
+      // Pe întreaga rulare fizică (toate trip-urile autobuzului din ziua aia),
+      // nu doar pe trip-ul rutei — vezi lib/runSeats. Propriile locuri nu blochează.
+      const occ = new Set(await occupiedSeatsForRun(tripId, id));
+      return seats.every((n) => !occ.has(n));
     };
     if (!(await checkSeatsFree(newTripId, seatNumbers))) {
       return NextResponse.json({ success: false, error: "Unul din locurile alese e deja ocupat" }, { status: 409 });

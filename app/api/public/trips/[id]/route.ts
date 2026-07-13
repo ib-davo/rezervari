@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { occupiedSeatsForRun } from "@/lib/runSeats";
 import type { BusLayout, MultiDeckLayout, SeatLayout } from "@/lib/adminMock";
 
 function safeLayout(raw: string): BusLayout {
@@ -46,7 +47,6 @@ export async function GET(
             layoutJson: true,
           },
         },
-        seatBookings: { select: { seatNumber: true } },
       },
     });
 
@@ -58,6 +58,10 @@ export async function GET(
     }
 
     const layout = safeLayout(trip.bus.layoutJson);
+    // Ocuparea pe RULAREA fizică (toate trip-urile aceluiași autobuz din ziua
+    // respectivă), nu doar pe trip-ul rutei curente — locul 1 vândut pe
+    // Bruxelles→Chișinău e ocupat și pentru Gent→Chișinău. Vezi lib/runSeats.
+    const occupiedSeats = await occupiedSeatsForRun(trip.id);
 
     return NextResponse.json({
       success: true,
@@ -80,7 +84,7 @@ export async function GET(
           totalSeats: trip.bus.totalSeats,
           layout,
         },
-        occupiedSeats: trip.seatBookings.map((sb) => sb.seatNumber),
+        occupiedSeats,
       },
     });
   } catch (error) {

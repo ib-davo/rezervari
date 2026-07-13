@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { sendBookingConfirmation, sendAdminNotification, BookingConfirmationData } from '@/lib/email'
 import { calculatePrice, calculatePriceFromRoute, calculateParcelPrice, seatSurcharge } from '@/lib/pricing'
+import { occupiedSeatsForRun } from '@/lib/runSeats'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 import { enqueueRemindersOnly } from '@/lib/emailQueue'
 import { createBookingToken, bookingResponseUrl } from '@/lib/bookingToken'
@@ -51,7 +52,6 @@ async function validateTripSeats(tripId: string, seatNumbers: number[]): Promise
     include: {
       bus: true,
       route: { include: { originCity: true, destinationCity: true } },
-      seatBookings: { select: { seatNumber: true } },
     },
   })
   if (!trip) return { ok: false, error: 'Cursa nu a fost găsită' }
@@ -68,9 +68,10 @@ async function validateTripSeats(tripId: string, seatNumbers: number[]): Promise
   if (new Set(seatNumbers).size !== seatNumbers.length) {
     return { ok: false, error: 'Scaune duplicate' }
   }
-  // Backend = sursa de adevăr pentru ocupare: respinge locurile deja rezervate,
-  // chiar dacă harta din frontend e învechită (previne dubla-rezervare a locului).
-  const taken = new Set(trip.seatBookings.map((sb) => sb.seatNumber))
+  // Backend = sursa de adevăr pentru ocupare: respinge locurile deja rezervate
+  // pe ÎNTREAGA rulare fizică (toate trip-urile aceluiași autobuz din ziua aia),
+  // chiar dacă harta din frontend e învechită. Vezi lib/runSeats.
+  const taken = new Set(await occupiedSeatsForRun(tripId))
   const conflict = seatNumbers.filter((n) => taken.has(n))
   if (conflict.length > 0) {
     return { ok: false, error: `Locurile ${conflict.join(', ')} sunt deja rezervate. Alege altele.` }
