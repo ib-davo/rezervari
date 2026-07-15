@@ -11,8 +11,10 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
   const raw = (req.nextUrl.searchParams.get("nr") || "").trim().toUpperCase();
-  // Acceptă și URL-ul întreg din QR — extragem numărul de bilet.
-  const m = raw.match(/DAVO-\d{4}-[A-Z0-9]+/);
+  // Acceptă și URL-ul întreg din QR — extragem numărul de bilet. Segmentul din
+  // mijloc poate fi anul (2026) SAU un lot de import (IMPBEL/IMPANG), deci acceptăm
+  // litere+cifre acolo, nu doar 4 cifre.
+  const m = raw.match(/DAVO-[A-Z0-9]+-[A-Z0-9]+/);
   const nr = m ? m[0] : raw;
   if (!nr) return NextResponse.json({ success: false, error: "Număr de bilet lipsă" }, { status: 400 });
 
