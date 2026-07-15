@@ -431,20 +431,17 @@ function TripCard({ g, onAct, showDay, buses }: {
     return (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-dashed border-[color:var(--ink-200)] bg-[color:var(--ink-50)] p-3 sm:p-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">
-            <Bus className="h-3.5 w-3.5" />
+          {/* Autocarul = identitatea cardului (ne bazăm pe autocar, nu pe țară). */}
+          <div className="flex items-center gap-1.5 text-sm font-extrabold text-[color:var(--navy-900)]">
+            <Bus className="h-4 w-4 shrink-0 text-[color:var(--ink-400)]" />
             <span className="truncate">{g.busLabel || "Autocar programat"}</span>
-            {g.busPlate && <span>· {g.busPlate}</span>}
+            {g.busPlate && <span className="text-[color:var(--ink-500)]">· {g.busPlate}</span>}
           </div>
-          {g.to ? (
-            <div className="mt-0.5 flex items-center gap-1.5 text-sm font-bold text-[color:var(--navy-900)]">
+          {g.to && (
+            <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-[color:var(--ink-500)]">
               <span className="truncate">{g.from}</span>
-              <ArrowRight className="h-4 w-4 shrink-0 text-[color:var(--ink-400)]" />
+              <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--ink-400)]" />
               <span className="truncate">{g.to}</span>
-            </div>
-          ) : (
-            <div className="mt-0.5 text-sm font-bold text-[color:var(--navy-900)]">
-              Autocar programat · <span className="text-[color:var(--ink-500)]">fără rezervări</span>
             </div>
           )}
           <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-400)]">
@@ -479,14 +476,15 @@ function TripCard({ g, onAct, showDay, buses }: {
       <div className="bg-[color:var(--navy-50)] p-3 sm:p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[color:var(--red-500)]">
-              <Bus className="h-3.5 w-3.5" />
+            {/* Autocarul = titlul principal; țările devin linie secundară dedesubt. */}
+            <div className="flex items-center gap-1.5 text-base font-extrabold text-[color:var(--navy-900)]">
+              <Bus className="h-4 w-4 shrink-0 text-[color:var(--red-500)]" />
               <span className="truncate">{g.busLabel || "Fără autocar atribuit"}</span>
-              {g.busPlate && <span className="text-[color:var(--ink-400)]">· {g.busPlate}</span>}
+              {g.busPlate && <span className="text-[color:var(--ink-500)]">· {g.busPlate}</span>}
             </div>
-            <div className="mt-1 flex items-center gap-1.5 text-base font-extrabold text-[color:var(--navy-900)]">
+            <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-[color:var(--ink-500)]">
               <span className="truncate">{g.from}</span>
-              <ArrowRight className="h-4 w-4 shrink-0 text-[color:var(--red-500)]" />
+              <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--ink-400)]" />
               <span className="truncate">{g.to}</span>
             </div>
             <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-500)]">
