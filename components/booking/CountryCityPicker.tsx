@@ -120,6 +120,10 @@ export type CountryCityPickerProps = {
   // destinație, când origine e deja Moldova, am putea ascunde Moldova). În
   // versiunea actuală nu folosim asta — păstrăm libertate totală.
   hideCountries?: string[];
+  // Rutele Anglia ↔ Moldova opresc DOAR la Chișinău (autocarul de Anglia nu are
+  // opriri de coborâre prin raioane). Când e true, lista de orașe a Moldovei se
+  // reduce la Chișinău.
+  chisinauOnly?: boolean;
 };
 
 export function CountryCityPicker({
@@ -129,6 +133,7 @@ export function CountryCityPicker({
   countryPlaceholder,
   cityPlaceholder,
   hideCountries,
+  chisinauOnly = false,
 }: CountryCityPickerProps) {
   const countries = useCountries(locale);
   const visible = useMemo(
@@ -137,7 +142,10 @@ export function CountryCityPicker({
   );
   const { city, country } = parseValue(value, countries);
   const selectedCountry = countries.find((c) => c.name === country);
-  const cities = selectedCountry?.cities ?? [];
+  const allCities = selectedCountry?.cities ?? [];
+  const cities = chisinauOnly && country === MOLDOVA
+    ? allCities.filter((c) => c.name === "Chișinău")
+    : allCities;
 
   // Auto-select când rămâne o singură țară posibilă (ex: origin=Anglia → în
   // picker-ul de destinație, doar Moldova mai e vizibilă). Economiseste un
