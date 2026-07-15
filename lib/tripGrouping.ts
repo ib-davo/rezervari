@@ -164,6 +164,49 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     select: { name: true, outboundWeekday: true, outboundTime: true, returnWeekday: true, returnTime: true },
   });
 
+  // CURSE REALE viitoare (scheduled/boarding) = SURSA DE ADEVĂR pentru autocar,
+  // exact ce setează adminul prin Trip.busId. Panoul le citește pe ELE, nu regula
+  // hardcodată din busSchedule. Aceea rămâne DOAR ca fallback pe zilele fără curse
+  // materializate (ca să nu rămână calendarul gol în viitorul îndepărtat).
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const futureTrips = await prisma.trip.findMany({
+    where: { departureAt: { gte: startOfToday }, status: { in: ["scheduled", "boarding"] } },
+    select: {
+      departureAt: true,
+      bus: { select: { id: true, label: true, plate: true, totalSeats: true } },
+      route: {
+        select: {
+          originCity: { select: { country: { select: { name: true } } } },
+          destinationCity: { select: { country: { select: { name: true } } } },
+        },
+      },
+    },
+  });
+  type RealRun = { bus: JourneyBus; inbound: boolean; countries: Set<string>; departureAt: Date };
+  const realRunByDayBus = new Map<string, RealRun>(); // `${dayKey}:${busId}` → run agregat
+  const realRunsByDay = new Map<string, RealRun[]>(); // dayKey → run-uri reale
+  const realCoveredDayDir = new Set<string>(); // `${dayKey}|${inbound}` — zile+sens acoperite de curse reale
+  for (const t of futureTrips) {
+    if (!t.bus) continue;
+    const oC = t.route?.originCity?.country?.name ?? "";
+    const dC = t.route?.destinationCity?.country?.name ?? "";
+    const inbound = isMD(dC);
+    const dk = dayKey(t.departureAt);
+    realCoveredDayDir.add(`${dk}|${inbound}`);
+    const rkey = `${dk}:${t.bus.id}`;
+    let r = realRunByDayBus.get(rkey);
+    if (!r) {
+      r = { bus: { id: t.bus.id, label: t.bus.label, plate: t.bus.plate ?? null, totalSeats: t.bus.totalSeats ?? null }, inbound, countries: new Set(), departureAt: t.departureAt };
+      realRunByDayBus.set(rkey, r);
+      const arr = realRunsByDay.get(dk) ?? [];
+      arr.push(r);
+      realRunsByDay.set(dk, arr);
+    }
+    const eu = inbound ? oC : dC;
+    if (eu && !isMD(eu)) r.countries.add(eu);
+    if (t.departureAt < r.departureAt) r.departureAt = t.departureAt;
+  }
+
   const groups = new Map<string, Group>();
 
   const placeLeg = (b: BookingRow, legKind: "dep" | "ret") => {
@@ -186,13 +229,22 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
 
     const dk = trip ? dayKey(trip.departureAt) : dayKey(b.departureDate);
 
-    // Rezervare loose (fără cursă în DB): leag-o de cursa fizică după regula
-    // recurentă (dată + țara non-MD → autobuz), ca să se grupeze cu run-ul.
-    if (!bus) {
+    // Rezervare loose (fără cursă în DB): leag-o de cursa fizică a zilei. Întâi
+    // din CURSELE REALE (ce setează adminul) — potrivim sensul + țara EU. Doar
+    // dacă ziua+sensul n-are curse reale cădem pe regula recurentă (fallback).
+    if (!bus && direction !== "x") {
       const legDate = trip ? trip.departureAt : b.departureDate;
-      const plate = busPlateForRun(legDate, oCountry, dCountry);
-      const rb = plate ? busByPlate.get(plate) : undefined;
-      if (rb) bus = { id: rb.id, label: rb.label, plate: rb.plate ?? null, totalSeats: rb.totalSeats ?? null };
+      const dkLeg = dayKey(legDate);
+      const euCountry = direction === "in" ? oCountry : dCountry;
+      const sameDir = (realRunsByDay.get(dkLeg) ?? []).filter((r) => r.inbound === (direction === "in"));
+      let picked = euCountry ? sameDir.find((r) => r.countries.has(euCountry)) : undefined;
+      if (!picked && sameDir.length === 1) picked = sameDir[0]; // o singură cursă pe sensul ăla → fără ambiguitate
+      if (picked) bus = picked.bus;
+      else if (!realCoveredDayDir.has(`${dkLeg}|${direction === "in"}`)) {
+        const plate = busPlateForRun(legDate, oCountry, dCountry);
+        const rb = plate ? busByPlate.get(plate) : undefined;
+        if (rb) bus = { id: rb.id, label: rb.label, plate: rb.plate ?? null, totalSeats: rb.totalSeats ?? null };
+      }
     }
 
     const departureIso = trip ? trip.departureAt.toISOString() : b.departureDate.toISOString();
@@ -284,11 +336,17 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       // cele din rezervările existente. Altfel, DAW 777 pe 12 iul (Belgia/Olanda/
       // Germania) cu rezervări doar din Belgia+Germania ar bloca Olanda la „+".
       let scheduledEu: string[] = [];
-      if (g.busPlate && (inboundRun || outboundRun)) {
-        const run = scheduledRunsForDate(new Date(g.departureAt), countrySchedule).find(
-          (r) => r.plate === g.busPlate && r.inbound === inboundRun
-        );
-        if (run) scheduledEu = [...new Set(run.countries)];
+      if (g.busId && (inboundRun || outboundRun)) {
+        // Preferă țările din CURSELE REALE ale zilei (ce setează adminul);
+        // fallback pe regula recurentă doar dacă ziua n-are curse materializate.
+        const rr = realRunByDayBus.get(`${g.dayKey}:${g.busId}`);
+        if (rr && rr.countries.size > 0) scheduledEu = [...rr.countries];
+        else if (g.busPlate) {
+          const run = scheduledRunsForDate(new Date(g.departureAt), countrySchedule).find(
+            (r) => r.plate === g.busPlate && r.inbound === inboundRun
+          );
+          if (run) scheduledEu = [...new Set(run.countries)];
+        }
       }
       const bookedEu = (inboundRun ? originCountriesArr : outboundRun ? destCountriesArr : []).filter((c) => !isMD(c));
       const euCountries = [...new Set([...bookedEu, ...scheduledEu])];
@@ -336,6 +394,46 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
   // card gol (cheie identică → sar).
   const existingKeys = new Set(list.map((g) => g.key));
   const scheduledDaysSet = new Set<string>();
+
+  // (A) Carduri GOALE din CURSELE REALE (sursa de adevăr — ce setează adminul).
+  // Așa 17/19 iul apar pe DAW 777 fără nicio regulă hardcodată, iar orice mutare
+  // de autocar din admin se reflectă automat aici.
+  for (const [rkey, r] of realRunByDayBus) {
+    const dk = rkey.slice(0, rkey.indexOf(":"));
+    scheduledDaysSet.add(dk);
+    const key = `${dk}:bus:${r.bus.id}`;
+    if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
+    existingKeys.add(key);
+    const countriesArr = [...r.countries].sort((a, b) => a.localeCompare(b, "ro"));
+    const countriesStr = countriesArr.join(", ");
+    list.push({
+      kind: "empty",
+      key,
+      busId: r.bus.id,
+      busLabel: r.bus.label,
+      busPlate: r.bus.plate ?? null,
+      from: r.inbound ? countriesStr : "Chișinău",
+      to: r.inbound ? "Chișinău" : countriesStr,
+      departureAt: r.departureAt.toISOString(),
+      arrivalAt: null,
+      capacity: r.bus.totalSeats ?? null,
+      seatsTaken: 0,
+      dayKey: dk,
+      multi: false,
+      add: {
+        date: dk,
+        ...(countriesArr.length > 0 ? { countries: countriesArr } : {}),
+        ...(r.inbound
+          ? { to: "Chișinău, Moldova", ...(countriesArr.length === 1 ? { from: countriesArr[0] } : {}) }
+          : { from: "Chișinău, Moldova", ...(countriesArr.length === 1 ? { to: countriesArr[0] } : {}) }),
+      },
+      tripIds: [],
+      bookings: [],
+    });
+  }
+
+  // (B) Fallback VIRTUAL (regula recurentă) DOAR pe zile+sens FĂRĂ curse reale —
+  // ca să nu rămână calendarul gol în viitorul nematerializat.
   const YEAR_DAYS = 366;
   for (let i = 0; i < YEAR_DAYS; i++) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
@@ -343,6 +441,7 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     if (runs.length === 0) continue;
     const dk = dayKey(d);
     for (const run of runs) {
+      if (realCoveredDayDir.has(`${dk}|${run.inbound}`)) continue; // ziua+sens au curse reale → nu inventa
       const bus = busByPlate.get(run.plate);
       if (!bus) continue;
       scheduledDaysSet.add(dk);
