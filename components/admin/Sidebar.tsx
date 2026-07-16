@@ -15,6 +15,7 @@ import {
   Globe,
   X,
   Armchair,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canAccessUI, type Role } from "@/lib/permissions";
@@ -171,6 +172,20 @@ export default function Sidebar({
             </div>
           ))}
         </nav>
+
+        {/* Salt rapid către panoul operatorilor (rezervari.davo.md) — tab nou. */}
+        <div className="border-t border-slate-200 p-3">
+          <a
+            href="https://rezervari.davo.md/panou"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            className="flex items-center gap-3 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 px-3 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:from-orange-600 hover:to-red-600"
+          >
+            <ExternalLink className="h-4 w-4 shrink-0" />
+            <span className="flex-1 truncate">Panou operatori</span>
+          </a>
+        </div>
       </aside>
     </>
   );
