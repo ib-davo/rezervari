@@ -69,6 +69,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
   const [surplus, setSurplus] = useState(false);
   const [surplusKg, setSurplusKg] = useState("");
   const [surplusNote, setSurplusNote] = useState("");
+  const [surplusPaid, setSurplusPaid] = useState(false);
   const [markPaid, setMarkPaid] = useState(false);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
@@ -98,6 +99,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
       setSurplus(!!b.baggageSurplus);
       setSurplusKg("");
       setSurplusNote(b.baggageSurplus ?? "");
+      setSurplusPaid(false);
       setMarkPaid(false);
       setDone(false);
       return true;
@@ -181,6 +183,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
     const surplusText = surplus
       ? [
           Number.isFinite(kg) && kg > 0 ? `+${kg} kg · ${surplusPrice}${sym}` : "peste limită",
+          surplusPaid ? "achitat" : "neachitat",
           surplusNote.trim() || null,
         ].filter(Boolean).join(" · ")
       : null;
@@ -229,6 +232,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
     setSurplus(false);
     setSurplusKg("");
     setSurplusNote("");
+    setSurplusPaid(false);
     setMarkPaid(false);
   };
 
@@ -370,12 +374,26 @@ function ScanModal({ onClose }: { onClose: () => void }) {
                       placeholder="notă (opțional): achitat cash / de achitat la destinație"
                       className="w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
                     />
+                    {/* Bifă separată: surplusul a fost achitat sau nu. */}
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2">
+                      <input type="checkbox" checked={surplusPaid} onChange={(e) => setSurplusPaid(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+                      <span className="text-sm font-bold text-[color:var(--navy-900)]">Surplusul a fost achitat</span>
+                    </label>
                   </div>
                 )}
-                {booking.paymentStatus !== "paid" && (
-                  <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-[color:var(--ink-200)] p-3">
-                    <input type="checkbox" checked={markPaid} onChange={(e) => setMarkPaid(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
-                    <span className="text-sm font-semibold text-[color:var(--navy-900)]">S-a făcut achitarea acum</span>
+                {/* Achitarea CURSEI la îmbarcare — bifezi dacă clientul a plătit
+                    biletul acum; se marchează „achitat". */}
+                {booking.paymentStatus === "paid" ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-700">
+                    ✓ Cursa e deja achitată
+                  </div>
+                ) : (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-[color:var(--ink-200)] p-3">
+                    <input type="checkbox" checked={markPaid} onChange={(e) => setMarkPaid(e.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-600" />
+                    <span className="text-sm font-semibold text-[color:var(--navy-900)]">
+                      Achitat cursa ({booking.price}{booking.currency === "GBP" ? "£" : "€"})
+                      <span className="block text-[11px] font-normal text-[color:var(--ink-500)]">bifează dacă clientul a plătit biletul la îmbarcare — se marchează „achitat"</span>
+                    </span>
                   </label>
                 )}
                 {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div>}
