@@ -54,6 +54,7 @@ export type TripGroupData = {
   arrivalAt: string | null;
   capacity: number | null;
   seatsTaken: number;
+  circuitOcc?: { taken: number; capacity: number } | null;
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };
@@ -63,6 +64,16 @@ export type TripGroupData = {
 
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function weekdayOfKey(dk: string): number {
+  const [y, m, d] = dk.split("-").map(Number);
+  return new Date(y, m - 1, d).getDay(); // 0=duminică, 1=luni
+}
+function prevDayKey(dk: string): string {
+  const [y, m, d] = dk.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - 1);
+  return dayKey(dt);
 }
 function isMD(country?: string | null): boolean {
   return /moldova/i.test(country ?? "");
@@ -493,6 +504,28 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       });
     }
   }
+  // Ocupare PARTAJATĂ pe circuitul DAW 077 retur: duminică (Anglia) + luni (Belgia
+  // 04:00 / Luxemburg 07:00) = ACELAȘI autocar fizic, 54 locuri. Ambele carduri
+  // arată totalul combinat, ca operatorul să nu suprarezerveze. DOAR DAW 077.
+  const circuits = new Map<string, TripGroupData[]>();
+  for (const g of list) {
+    if (g.busPlate !== "DAW 077") continue;
+    const wd = weekdayOfKey(g.dayKey);
+    let anchor: string | null = null;
+    if (wd === 0) anchor = g.dayKey;                    // duminică = ancoră
+    else if (wd === 1) anchor = prevDayKey(g.dayKey);   // luni → duminica dinainte
+    else continue;                                       // joi (dus) — alt circuit
+    const arr = circuits.get(anchor) ?? [];
+    arr.push(g);
+    circuits.set(anchor, arr);
+  }
+  for (const gs of circuits.values()) {
+    if (gs.length < 2) continue; // un singur card în circuit → nimic de partajat
+    const taken = gs.reduce((s, g) => s + g.seatsTaken, 0);
+    const capacity = Math.max(0, ...gs.map((g) => g.capacity ?? 0));
+    for (const g of gs) g.circuitOcc = { taken, capacity };
+  }
+
   list.sort((a, b) => a.departureAt.localeCompare(b.departureAt));
 
   return { groups: list, calendar, scheduledDays: [...scheduledDaysSet] };

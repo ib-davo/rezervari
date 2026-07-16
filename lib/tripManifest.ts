@@ -15,6 +15,10 @@ export type TripGroup = {
   arrivalAt: string | null;
   capacity: number | null;
   seatsTaken: number;
+  // Ocupare PARTAJATĂ pe circuit fizic multi-zi (DAW 077: duminică Anglia + luni
+  // Belgia/Luxemburg = același autocar, 54 locuri). Setat pe toate cardurile
+  // circuitului; când e prezent, ocuparea afișată = totalul combinat.
+  circuitOcc?: { taken: number; capacity: number } | null;
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };

@@ -414,8 +414,11 @@ function TripCard({ g, onAct, showDay, buses }: {
   const [showCancelled, setShowCancelled] = useState(showDay);
   const dep = new Date(g.departureAt);
   // Ocupare + „plătite" pe PASAGERI (locuri), nu pe rezervări (o rezervare poate
-  // avea mai multe locuri = mai mulți pasageri).
-  const occ = g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.seatsTaken}`;
+  // avea mai multe locuri = mai mulți pasageri). Pe circuitul DAW 077 (duminică +
+  // luni, același autocar) ocuparea afișată = totalul COMBINAT, ca să nu suprarezervezi.
+  const occ = g.circuitOcc
+    ? `${g.circuitOcc.taken}/${g.circuitOcc.capacity}`
+    : g.capacity ? `${g.seatsTaken}/${g.capacity}` : `${g.seatsTaken}`;
   const paidPax = g.bookings
     .filter((b) => b.status !== "cancelled" && b.paymentStatus === "paid")
     .reduce((s, b) => s + bookingPax(b, g.tripIds), 0);
@@ -452,16 +455,27 @@ function TripCard({ g, onAct, showDay, buses }: {
           )}
           <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-400)]">
             {showDay && <>{cap(fmtDayLong.format(dep))} · </>}{fmtTime.format(dep)}
-            {" · fără rezervări"}
-            {g.capacity ? ` · ${g.capacity} locuri libere` : ""}
+            {g.circuitOcc
+              ? " · circuit DAW 077 (duminică + luni)"
+              : `${" · fără rezervări"}${g.capacity ? ` · ${g.capacity} locuri libere` : ""}`}
           </div>
         </div>
-        <Link
-          href={addHref}
-          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
-        >
-          <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          {g.circuitOcc && (
+            <span
+              title="Ocupare pe circuitul DAW 077 (duminică Anglia + luni Belgia/Luxemburg — același autocar)"
+              className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)] ring-1 ring-inset ring-[color:var(--ink-200)]"
+            >
+              <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
+            </span>
+          )}
+          <Link
+            href={addHref}
+            className="inline-flex items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
+          >
+            <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
+          </Link>
+        </div>
       </div>
     );
   }
@@ -514,8 +528,12 @@ function TripCard({ g, onAct, showDay, buses }: {
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
-          <div className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)]">
+          <div
+            title={g.circuitOcc ? "Ocupare pe circuitul DAW 077 (duminică + luni, același autocar)" : undefined}
+            className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)]"
+          >
             <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
+            {g.circuitOcc && <span className="text-[9px] font-semibold text-[color:var(--ink-400)]">circuit</span>}
           </div>
           <div className="text-[11px] font-bold text-[color:var(--navy-900)]">
             {active.length} {active.length === 1 ? "rezervare" : "rezervări"}
