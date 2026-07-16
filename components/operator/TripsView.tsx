@@ -375,7 +375,9 @@ export default function TripsView() {
       ) : (
         <div className="space-y-3">
           {visibleGroups.map((g) => (
-            <TripCard key={g.key} g={g} onAct={act} showDay={searching} buses={buses} />
+            // Cheie dependentă de căutare: cardurile se remontează la trecerea
+            // căutare pornit/oprit, ca `expanded` să pornească din starea corectă.
+            <TripCard key={searching ? `${g.key}:s` : g.key} g={g} onAct={act} showDay={searching} buses={buses} />
           ))}
         </div>
       )}
@@ -406,6 +408,10 @@ function TripCard({ g, onAct, showDay, buses }: {
   showDay: boolean;
   buses: BusOption[];
 }) {
+  // Colapsat implicit — se desfășoară pasagerii la click pe antet (ca să nu dai
+  // scroll între autocare). La căutare pornește desfășurat.
+  const [expanded, setExpanded] = useState(showDay);
+  const [showCancelled, setShowCancelled] = useState(showDay);
   const dep = new Date(g.departureAt);
   // Ocupare + „plătite" pe PASAGERI (locuri), nu pe rezervări (o rezervare poate
   // avea mai multe locuri = mai mulți pasageri).
@@ -470,76 +476,116 @@ function TripCard({ g, onAct, showDay, buses }: {
     w.document.close();
   };
 
+  const active = g.bookings.filter((b) => b.status !== "cancelled");
+  const cancelledList = g.bookings.filter((b) => b.status === "cancelled");
+  // Orașul specific contează mereu pentru șofer (model hub) — îl arătăm când
+  // diferă de antetul cursei sau când cursa are mai multe puncte.
+  const showRouteFor = (b: OperatorBooking) =>
+    g.multi || cityOnly(b.departureCity) !== g.from || cityOnly(b.arrivalCity) !== g.to;
+  const canAssignFor = (b: OperatorBooking) => g.busId === null || !!b.manualBusId;
+
   return (
     <div className="overflow-hidden rounded-2xl border border-[color:var(--ink-200)] bg-white">
-      {/* Antet cursă */}
-      <div className="bg-[color:var(--navy-50)] p-3 sm:p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            {/* Autocarul = titlul principal; țările devin linie secundară dedesubt. */}
-            <div className="flex items-center gap-1.5 text-base font-extrabold text-[color:var(--navy-900)]">
-              <Bus className="h-4 w-4 shrink-0 text-[color:var(--red-500)]" />
-              <span className="truncate">{g.busLabel || "Fără autocar atribuit"}</span>
-              {g.busPlate && <span className="text-[color:var(--ink-500)]">· {g.busPlate}</span>}
-            </div>
-            <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-[color:var(--ink-500)]">
-              <span className="truncate">{g.from}</span>
-              <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--ink-400)]" />
-              <span className="truncate">{g.to}</span>
-            </div>
-            <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-500)]">
-              {showDay && <>{cap(fmtDayLong.format(dep))} · </>}
-              {fmtTime.format(dep)}
-            </div>
+      {/* Antet cursă — click pentru a desfășura pasagerii (colapsat implicit, ca
+          să nu dai scroll între autocare). */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); setExpanded((v) => !v); } }}
+        className="flex cursor-pointer select-none items-start justify-between gap-2 bg-[color:var(--navy-50)] p-3 sm:p-4"
+      >
+        <div className="min-w-0">
+          {/* Autocarul = titlul principal; țările = linie secundară. */}
+          <div className="flex items-center gap-1.5 text-base font-extrabold text-[color:var(--navy-900)]">
+            <Bus className="h-4 w-4 shrink-0 text-[color:var(--red-500)]" />
+            <span className="truncate">{g.busLabel || "Fără autocar atribuit"}</span>
+            {g.busPlate && <span className="text-[color:var(--ink-500)]">· {g.busPlate}</span>}
           </div>
-          <div className="shrink-0 text-right">
-            <div className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)]">
-              <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
-            </div>
-            <div className="mt-1 text-[10px] font-semibold text-[color:var(--ink-400)]">{paidPax} plătite</div>
+          <div className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-[color:var(--ink-500)]">
+            <span className="truncate">{g.from}</span>
+            <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--ink-400)]" />
+            <span className="truncate">{g.to}</span>
+          </div>
+          <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-500)]">
+            {showDay && <>{cap(fmtDayLong.format(dep))} · </>}
+            {fmtTime.format(dep)}
           </div>
         </div>
-
-        {/* Acțiuni cursă: + rezervare, export */}
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <Link
-            href={addHref}
-            className="inline-flex items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
-          >
-            <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
-          </Link>
-          <a
-            href={excelHref}
-            className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
-          >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
-          </a>
-          <button
-            onClick={exportPdf}
-            className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
-          >
-            <Printer className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> PDF
-          </button>
+        <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+          <div className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[color:var(--navy-900)]">
+            <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
+          </div>
+          <div className="text-[11px] font-bold text-[color:var(--navy-900)]">
+            {active.length} {active.length === 1 ? "rezervare" : "rezervări"}
+            {paidPax > 0 && <span className="font-semibold text-emerald-600"> · {paidPax} plătite</span>}
+          </div>
+          {cancelledList.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded(true); setShowCancelled((v) => !v); }}
+              className="text-[10px] font-semibold text-red-600 hover:underline"
+            >
+              {cancelledList.length} {cancelledList.length === 1 ? "anulată" : "anulate"}
+            </button>
+          )}
+          <ChevronDown className={`h-4 w-4 text-[color:var(--ink-400)] transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </div>
 
-      {/* Rezervări */}
-      <div className="divide-y divide-[color:var(--ink-100)]">
-        {g.bookings.map((b) => (
-          <BookingRow
-            key={b.id}
-            b={b}
-            seats={seatsFor(b, g)}
-            // Arată orașul rezervării când diferă de antetul cursei (ex. antet
-            // „Anglia → Chișinău", dar pasagerul e din Tamworth / merge la Comrat).
-            // Cu modelul hub, orașul specific contează mereu pentru șofer.
-            showRoute={g.multi || cityOnly(b.departureCity) !== g.from || cityOnly(b.arrivalCity) !== g.to}
-            canAssign={g.busId === null || !!b.manualBusId}
-            buses={buses}
-            onAct={onAct}
-          />
-        ))}
-      </div>
+      {expanded && (
+        <>
+          {/* Acțiuni cursă: + rezervare, export */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-[color:var(--navy-50)] px-3 pb-3 sm:px-4">
+            <Link
+              href={addHref}
+              className="inline-flex items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
+            >
+              <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
+            </Link>
+            <a
+              href={excelHref}
+              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
+            </a>
+            <button
+              onClick={exportPdf}
+              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+            >
+              <Printer className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> PDF
+            </button>
+          </div>
+
+          {/* Pasageri ACTIVI (anulatele NU apar aici) */}
+          <div className="divide-y divide-[color:var(--ink-100)]">
+            {active.map((b) => (
+              <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} />
+            ))}
+          </div>
+
+          {/* Anulate — ascunse până la click pe „y anulate". */}
+          {cancelledList.length > 0 && (
+            <div className="border-t border-[color:var(--ink-100)]">
+              <button
+                onClick={() => setShowCancelled((v) => !v)}
+                className="flex w-full items-center justify-center gap-1 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+              >
+                <X className="h-3.5 w-3.5" />
+                {showCancelled ? "Ascunde" : "Arată"} {cancelledList.length} {cancelledList.length === 1 ? "anulată" : "anulate"}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCancelled ? "rotate-180" : ""}`} />
+              </button>
+              {showCancelled && (
+                <div className="divide-y divide-[color:var(--ink-100)]">
+                  {cancelledList.map((b) => (
+                    <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

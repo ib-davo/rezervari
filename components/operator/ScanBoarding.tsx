@@ -80,7 +80,9 @@ function ScanModal({ onClose }: { onClose: () => void }) {
   }, []);
 
   const lookup = useCallback(async (text: string) => {
-    const m = text.toUpperCase().match(/DAVO-\d{4}-[A-Z0-9]+/);
+    // Segmentul din mijloc poate fi anul (2026) SAU un lot de import (IMPBEL/
+    // IMPANG) — acceptăm litere+cifre, nu doar 4 cifre.
+    const m = text.toUpperCase().match(/DAVO-[A-Z0-9]+-[A-Z0-9]+/);
     if (!m) return false;
     setLoading(true);
     setError(null);
@@ -139,7 +141,7 @@ function ScanModal({ onClose }: { onClose: () => void }) {
             ctx.drawImage(v, 0, 0);
             const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const code = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-            if (code?.data && code.data !== lastFailedCode && /DAVO-\d{4}-[A-Z0-9]+/i.test(code.data)) {
+            if (code?.data && code.data !== lastFailedCode && /DAVO-[A-Z0-9]+-[A-Z0-9]+/i.test(code.data)) {
               // Oprim camera DOAR după un lookup reușit — altfel continuăm scanarea
               // live (biletul poate fi greșit/inexistent, se arată eroarea o dată).
               busy = true;

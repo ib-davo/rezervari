@@ -239,6 +239,13 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       const sameDir = (realRunsByDay.get(dkLeg) ?? []).filter((r) => r.inbound === (direction === "in"));
       let picked = euCountry ? sameDir.find((r) => r.countries.has(euCountry)) : undefined;
       if (!picked && sameDir.length === 1) picked = sameDir[0]; // o singură cursă pe sensul ăla → fără ambiguitate
+      // Țara n-are cursă proprie în ziua aia (ex. Luxemburg duminica), dar regula
+      // recurentă o mapează pe un autocar care CHIAR pleacă atunci (DAW 077) →
+      // alătur-o acelui run real, ca să apară pe foaia autocarului corect.
+      if (!picked && sameDir.length > 1) {
+        const plate = busPlateForRun(legDate, oCountry, dCountry);
+        if (plate) picked = sameDir.find((r) => r.bus.plate === plate);
+      }
       if (picked) bus = picked.bus;
       else if (!realCoveredDayDir.has(`${dkLeg}|${direction === "in"}`)) {
         const plate = busPlateForRun(legDate, oCountry, dCountry);
@@ -350,6 +357,14 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       }
       const bookedEu = (inboundRun ? originCountriesArr : outboundRun ? destCountriesArr : []).filter((c) => !isMD(c));
       const euCountries = [...new Set([...bookedEu, ...scheduledEu])];
+      // Afișarea EU pe card = TOATE țările deservite de autocar în ziua aia (curse
+      // reale + rezervări), nu doar cele cu pasageri. Așa DAW 077 (dus) arată
+      // „Anglia, Belgia, Luxemburg", nu doar unde merg pasagerii actuali.
+      if (euCountries.length > 0) {
+        const euStr = joinCountries(new Set(euCountries));
+        if (inboundRun) { g.from = euStr; g.to = "Chișinău"; }
+        else if (outboundRun) { g.from = "Chișinău"; g.to = euStr; }
+      }
       g.add = {
         date: dayKey(new Date(g.departureAt)),
         ...(euCountries.length > 0 ? { countries: euCountries } : {}),

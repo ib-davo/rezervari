@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Menu, Search, Bell, LogOut } from "lucide-react";
+import { Menu, Search, Bell, LogOut, ExternalLink } from "lucide-react";
 
 export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
   const router = useRouter();
@@ -39,6 +39,18 @@ export default function TopBar({ onMenuClick }: { onMenuClick: () => void }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        {/* Salt rapid către panoul operatorilor (rezervari.davo.md) — tab nou. */}
+        <a
+          href="https://rezervari.davo.md/panou"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Panou operatori (rezervari.davo.md)"
+          className="flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-orange-500 to-red-500 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-orange-600 hover:to-red-600"
+        >
+          <ExternalLink className="h-4 w-4" />
+          <span className="hidden sm:inline">Panou operatori</span>
+        </a>
+
         <button
           aria-label="Notificări"
           className="relative rounded-md p-2 text-slate-500 hover:bg-slate-100"
