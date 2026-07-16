@@ -117,7 +117,11 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // Noi: selecții de Trip + scaune din DB
   const [cityIndex, setCityIndex] = useState<Record<string, CityLookup> | null>(null);
   const [outboundTripId, setOutboundTripId] = useState<string | null>(null);
-  const [outboundSeats, setOutboundSeats] = useState<number[]>([]);
+  // Locuri pre-selectate din harta „Locuri" a panoului (?seats=2,3).
+  const [outboundSeats, setOutboundSeats] = useState<number[]>(() => {
+    const s = params.get("seats");
+    return s ? s.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
+  });
   const [outboundTripInfo, setOutboundTripInfo] = useState<PublicTrip | null>(null);
   const [returnTripId, setReturnTripId] = useState<string | null>(null);
   const [returnSeats, setReturnSeats] = useState<number[]>([]);

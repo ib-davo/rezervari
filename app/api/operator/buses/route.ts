@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   const buses = await prisma.bus.findMany({
     where: { active: true },
-    select: { id: true, label: true, plate: true, totalSeats: true },
+    select: { id: true, label: true, plate: true, totalSeats: true, layoutJson: true },
     orderBy: { label: "asc" },
   });
 

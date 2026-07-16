@@ -5,11 +5,13 @@ import Link from "next/link";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X, Armchair,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown, ChevronLeft, ChevronRight,
-  AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket, Pencil,
+  AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket, Pencil, LayoutGrid,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { SeatMapModal } from "@/components/operator/SeatMapModal";
+import type { BusLayout } from "@/lib/adminMock";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
 import { bookingPax } from "@/lib/manifestRows";
 import { displayPassengerNames } from "@/lib/passengerNames";
@@ -75,7 +77,7 @@ function cityOnly(s: string): string {
   return s.split(",")[0].trim();
 }
 
-type BusOption = { id: string; label: string; plate: string | null; totalSeats: number | null };
+type BusOption = { id: string; label: string; plate: string | null; totalSeats: number | null; layoutJson?: string | null };
 
 export default function TripsView() {
   const [groups, setGroups] = useState<TripGroup[]>([]);
@@ -412,6 +414,13 @@ function TripCard({ g, onAct, showDay, buses }: {
   // scroll între autocare). La căutare pornește desfășurat.
   const [expanded, setExpanded] = useState(showDay);
   const [showCancelled, setShowCancelled] = useState(showDay);
+  const [seatMapOpen, setSeatMapOpen] = useState(false);
+  // Schema de locuri a autocarului cursei (pentru harta „Locuri").
+  const busLayout = useMemo<BusLayout | null>(() => {
+    const raw = g.busId ? buses.find((x) => x.id === g.busId)?.layoutJson : null;
+    if (!raw) return null;
+    try { return JSON.parse(raw) as BusLayout; } catch { return null; }
+  }, [buses, g.busId]);
   const dep = new Date(g.departureAt);
   // Ocupare + „plătite" pe PASAGERI (locuri), nu pe rezervări (o rezervare poate
   // avea mai multe locuri = mai mulți pasageri). Pe circuitul DAW 077 (duminică +
@@ -469,6 +478,15 @@ function TripCard({ g, onAct, showDay, buses }: {
               <Users className="h-3.5 w-3.5 text-[color:var(--ink-400)]" /> {occ}
             </span>
           )}
+          {busLayout && (
+            <button
+              onClick={() => setSeatMapOpen(true)}
+              title="Hartă locuri"
+              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+            >
+              <LayoutGrid className="h-3.5 w-3.5 text-[color:var(--navy-700)]" /> Locuri
+            </button>
+          )}
           <Link
             href={addHref}
             className="inline-flex items-center gap-1 rounded-full bg-[color:var(--red-500)] px-3 py-1.5 text-xs font-semibold text-white active:scale-95 transition-transform hover:bg-[color:var(--red-600)]"
@@ -476,6 +494,7 @@ function TripCard({ g, onAct, showDay, buses }: {
             <Plus className="h-3.5 w-3.5" /> Rezervare pe cursă
           </Link>
         </div>
+        {seatMapOpen && <SeatMapModal g={g} layout={busLayout} onClose={() => setSeatMapOpen(false)} />}
       </div>
     );
   }
@@ -526,6 +545,14 @@ function TripCard({ g, onAct, showDay, buses }: {
             {showDay && <>{cap(fmtDayLong.format(dep))} · </>}
             {fmtTime.format(dep)}
           </div>
+          {busLayout && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setSeatMapOpen(true); }}
+              className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform hover:border-[color:var(--red-400)]"
+            >
+              <LayoutGrid className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> Hartă locuri
+            </button>
+          )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
           <div
@@ -604,6 +631,7 @@ function TripCard({ g, onAct, showDay, buses }: {
           )}
         </>
       )}
+      {seatMapOpen && <SeatMapModal g={g} layout={busLayout} onClose={() => setSeatMapOpen(false)} />}
     </div>
   );
 }
