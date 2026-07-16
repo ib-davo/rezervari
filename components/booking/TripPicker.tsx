@@ -106,6 +106,7 @@ export function TripPicker({
   autoSelectTripId = null,
   autoSelectFirst = false,
   autoSelectDate = null,
+  autoSelectSeats = [],
   collapsible = false,
   compact = false,
 }: {
@@ -130,6 +131,7 @@ export function TripPicker({
   /** Preselectează automat cursa cu acest id când lista s-a încărcat (folosit
    *  de butonul "+ Rezervare pe cursă" din panoul operatorilor). */
   autoSelectTripId?: string | null;
+  autoSelectSeats?: number[];
   /** Selectează automat prima cursă disponibilă când lista s-a încărcat (ex.
    *  cursa retur — operatorul a ales deja data dus, nu re-alege din calendar). */
   autoSelectFirst?: boolean;
@@ -274,7 +276,7 @@ export function TripPicker({
     if (autoSelectDone.current || selectedTripId) return;
     if (autoSelectTripId) {
       const t = (trips ?? []).find((x) => x.id === autoSelectTripId);
-      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); return; }
+      if (t) { autoSelectDone.current = true; onSelect(t.id, autoSelectSeats, t); return; }
       // tripId-ul nu e pe ruta curentă (operatorul a ales alt oraș decât cel al
       // trip-ului din link) → cădem pe selecția după zi, nu blocăm.
     }
@@ -284,7 +286,7 @@ export function TripPicker({
       const t = (trips ?? []).find(
         (x) => dayKey(new Date(x.departureAt)) === autoSelectDate && x.availableSeats > 0
       );
-      if (t) { autoSelectDone.current = true; onSelect(t.id, [], t); }
+      if (t) { autoSelectDone.current = true; onSelect(t.id, autoSelectSeats, t); }
       return;
     }
     // Cursa retur: alege automat prima dată disponibilă (operatorul a ales deja

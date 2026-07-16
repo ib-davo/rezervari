@@ -95,6 +95,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // "+ Rezervare pe cursă" din panou → preselectăm cursa (tripId) sau ziua (date).
   const initialTripId = params.get("tripId");
   const initialDate = params.get("date");
+  // Locuri pre-alese din harta „Locuri" a panoului (?seats=7,8) — se aplică pe
+  // cursă la auto-select, ca operatorul să NU le mai reselecteze în pași.
+  const initialSeats = params.get("seats")?.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0) ?? [];
   const [from, setFrom] = useState(initialFrom);
   const [to, setTo] = useState(initialTo);
   // Direcția determină ce listă apare la "Plecare din" vs "Destinația".
@@ -112,16 +115,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       : "eu-to-md";
   });
   const [trip, setTrip] = useState<"one" | "return">("one");
-  const [passengers, setPassengers] = useState(1);
+  const [passengers, setPassengers] = useState(initialSeats.length || 1);
 
   // Noi: selecții de Trip + scaune din DB
   const [cityIndex, setCityIndex] = useState<Record<string, CityLookup> | null>(null);
   const [outboundTripId, setOutboundTripId] = useState<string | null>(null);
-  // Locuri pre-selectate din harta „Locuri" a panoului (?seats=2,3).
-  const [outboundSeats, setOutboundSeats] = useState<number[]>(() => {
-    const s = params.get("seats");
-    return s ? s.split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0) : [];
-  });
+  const [outboundSeats, setOutboundSeats] = useState<number[]>(initialSeats);
   const [outboundTripInfo, setOutboundTripInfo] = useState<PublicTrip | null>(null);
   const [returnTripId, setReturnTripId] = useState<string | null>(null);
   const [returnSeats, setReturnSeats] = useState<number[]>([]);
@@ -668,6 +667,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               selectedTripId={outboundTripId}
                               selectedSeats={outboundSeats}
                               autoSelectTripId={initialTripId}
+                              // Locuri alese pe harta „Locuri" → se aplică automat pe cursă.
+                              autoSelectSeats={initialSeats}
                               // Ziua venită din „+ Rezervare pe cursă" — selectăm automat
                               // cursa din acea zi imediat ce operatorul alege orașul.
                               autoSelectDate={embedded ? initialDate : null}

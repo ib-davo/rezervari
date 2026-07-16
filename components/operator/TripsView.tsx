@@ -647,6 +647,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmPaid, setConfirmPaid] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const cancelled = b.status === "cancelled";
   const assignBus = async (busId: string) => {
@@ -660,6 +661,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
     await onAct(b.id, patch);
     setBusy(null);
     setConfirmCancel(false);
+    setConfirmPaid(false);
   };
 
   return (
@@ -721,7 +723,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
           <Phone className="h-3.5 w-3.5" /> {b.phone}
         </a>
         <button
-          onClick={() => { setOpen((v) => !v); setConfirmCancel(false); }}
+          onClick={() => { setOpen((v) => !v); setConfirmCancel(false); setConfirmPaid(false); }}
           className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold text-[color:var(--ink-500)] hover:bg-[color:var(--ink-50)]"
         >
           Acțiuni <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -762,9 +764,17 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             )
           )}
           {b.paymentStatus !== "paid" && (
-            <RowBtn busy={busy === "paid"} onClick={() => run("paid", { paymentStatus: "paid" })} className="border border-[color:var(--ink-200)] text-[color:var(--navy-900)]">
-              Marchează achitat
-            </RowBtn>
+            confirmPaid ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 pl-3 pr-1 py-1 text-xs font-semibold text-emerald-700">
+                Sigur achitat?
+                <RowBtn busy={busy === "paid"} onClick={() => run("paid", { paymentStatus: "paid" })} className="bg-emerald-600 text-white !px-2.5">Da</RowBtn>
+                <button onClick={() => setConfirmPaid(false)} className="rounded-full px-2 py-1 text-xs font-semibold text-[color:var(--ink-500)] hover:bg-white">Nu</button>
+              </span>
+            ) : (
+              <RowBtn onClick={() => setConfirmPaid(true)} className="border border-[color:var(--ink-200)] text-[color:var(--navy-900)]">
+                Marchează achitat
+              </RowBtn>
+            )
           )}
           <RowBtn busy={busy === "archive"} onClick={() => run("archive", { archive: true })} className="border border-[color:var(--ink-200)] text-[color:var(--ink-500)]">
             <Archive className="h-3.5 w-3.5" /> Arhivează
