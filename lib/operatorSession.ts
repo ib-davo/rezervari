@@ -85,6 +85,16 @@ export async function verifyOperatorToken(token: string | undefined): Promise<Op
   }
 }
 
+// Verifică sesiunea ȘI că operatorul e supervisor ACTIV (rolul se citește din DB,
+// nu din token — tokenul are doar {id,slug,name}). Pentru gestiunea operatorilor.
+export async function verifyOperatorSupervisor(token: string | undefined): Promise<OperatorSession | null> {
+  const session = await verifyOperatorToken(token);
+  if (!session) return null;
+  const op = await prisma.operator.findUnique({ where: { id: session.id }, select: { role: true, active: true } });
+  if (!op || !op.active || op.role !== "supervisor") return null;
+  return session;
+}
+
 export function operatorCookieOptions() {
   return {
     httpOnly: true,

@@ -3,19 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Plus, ListChecks, Archive, ShieldCheck } from "lucide-react";
+import { LogOut, Plus, ListChecks, Archive, ShieldCheck, Users } from "lucide-react";
 import { ScanBoarding } from "@/components/operator/ScanBoarding";
 
 export default function PanouLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [name, setName] = useState<string>("");
+  const [isSup, setIsSup] = useState(false);
 
   useEffect(() => {
     fetch("/api/operator/me")
       .then((r) => r.json())
       .then((d) => {
-        if (d?.success) setName(d.operator.name);
+        if (d?.success) { setName(d.operator.name); setIsSup(!!d.operator.isSupervisor); }
         else router.replace("/panou/login");
       })
       .catch(() => {});
@@ -30,6 +31,8 @@ export default function PanouLayout({ children }: { children: React.ReactNode })
   const tabs = [
     { href: "/panou", label: "Active", icon: ListChecks },
     { href: "/panou/arhiva", label: "Arhivă", icon: Archive },
+    // Doar supervizorul (Adrian) gestionează operatorii.
+    ...(isSup ? [{ href: "/panou/operatori", label: "Operatori", icon: Users }] : []),
   ];
 
   return (
@@ -47,6 +50,16 @@ export default function PanouLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Gestiune operatori — supervizor, acces rapid pe mobil (pe desktop e tab). */}
+            {isSup && (
+              <Link
+                href="/panou/operatori"
+                title="Operatori"
+                className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-full border border-[color:var(--ink-200)] text-[color:var(--navy-900)] active:scale-95 transition-transform"
+              >
+                <Users className="h-4 w-4" />
+              </Link>
+            )}
             {/* Scanner QR îmbarcare — mereu vizibil, în colț */}
             <ScanBoarding />
             {/* Buton mare doar pe desktop — pe telefon e în bara de jos */}
