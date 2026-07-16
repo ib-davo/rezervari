@@ -526,6 +526,17 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     for (const g of gs) g.circuitOcc = { taken, capacity };
   }
 
+  // DAW 077 ia Belgia (04:00) + Luxemburg (07:00) LUNI dimineața. În DB cursa reală
+  // de luni are doar Luxemburg, deci fără asta operatorul nu poate face rezervări
+  // Belgia pe luni. Adăugăm ambele țări la cardul de luni (afișare + prefill „+").
+  for (const g of list) {
+    if (g.busPlate !== "DAW 077" || weekdayOfKey(g.dayKey) !== 1) continue;
+    const inbound = /chi[sș]in[aă]u/i.test(g.to) || isMD(countryOf(g.to));
+    if (!inbound) continue;
+    g.add.countries = [...new Set([...(g.add.countries ?? []), "Belgia", "Luxemburg"])];
+    g.from = joinCountries(new Set([...g.add.countries]));
+  }
+
   list.sort((a, b) => a.departureAt.localeCompare(b.departureAt));
 
   return { groups: list, calendar, scheduledDays: [...scheduledDaysSet] };
