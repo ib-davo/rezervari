@@ -1,7 +1,7 @@
 // Foaie de parcurs PDF (HTML printabil → Salvează ca PDF). Excelul (.xlsx real
 // stilizat) e generat pe server: /api/operator/manifest. Aici doar PDF-ul.
 import type { OperatorBooking } from "@/components/operator/BookingsView";
-import { computeManifest } from "@/lib/manifestRows";
+import { computeManifest, currencySymbol, fmtTotals } from "@/lib/manifestRows";
 
 export type TripGroup = {
   kind: "trip" | "loose" | "empty";
@@ -34,7 +34,7 @@ function esc(s: string) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").
 function paxWord(n: number) { return `${n} ${n === 1 ? "pasager" : "pasageri"}`; }
 
 export function buildManifestHtml(g: TripGroup): string {
-  const { rows, totalPax, total, paidSum, symbol } = computeManifest(g);
+  const { rows, totalPax, totals } = computeManifest(g);
   const bus = g.busLabel ? `${g.busLabel}${g.busPlate ? ` · ${g.busPlate}` : ""}` : "Fără autocar atribuit";
   const dep = cap(dtFmt.format(new Date(g.departureAt)));
 
@@ -46,7 +46,7 @@ export function buildManifestHtml(g: TripGroup): string {
       <td class="mono">${esc(r.phone)}</td>
       <td>${esc(r.route)}</td>
       <td class="c ${r.paid ? "ok" : "due"}">${r.paid ? "Achitat" : "Neachitat"}</td>
-      <td class="r price">${r.price}${symbol}</td>
+      <td class="r price">${r.price}${currencySymbol(r.currency)}</td>
       <td class="note"></td>
     </tr>`).join("");
 
@@ -94,7 +94,7 @@ export function buildManifestHtml(g: TripGroup): string {
     <span>${esc(dep)}</span>
     <span><span class="pill">${paxWord(totalPax)}</span></span>
     ${g.capacity ? `<span>Ocupare <b>${totalPax}/${g.capacity}</b></span>` : ""}
-    <span>Încasat <b style="color:#059669">${paidSum}${symbol}</b> · De încasat <b style="color:#e11e2b">${total - paidSum}${symbol}</b></span>
+    <span>Încasat <b style="color:#059669">${fmtTotals(totals, "paidSum", "")}</b> · De încasat <b style="color:#e11e2b">${fmtTotals(totals, "due", "")}</b></span>
   </div>
   <table>
     <thead>
@@ -106,8 +106,8 @@ export function buildManifestHtml(g: TripGroup): string {
     <tbody>${body || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nicio rezervare pe această cursă.</td></tr>`}</tbody>
     <tfoot>
       <tr>
-        <td colspan="6" class="totlabel">TOTAL de încasat</td>
-        <td class="r totval">${total}${symbol}</td>
+        <td colspan="6" class="totlabel">TOTAL</td>
+        <td class="r totval">${fmtTotals(totals, "total", "")}</td>
         <td></td>
       </tr>
     </tfoot>

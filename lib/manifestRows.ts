@@ -29,7 +29,9 @@ export type ManifestPax = {
 };
 
 function cityOnly(s: string) { return s.split(",")[0].trim(); }
-function curr(c: string) { return c === "GBP" ? "£" : c === "EUR" ? "€" : c; }
+/** Simbolul monedei rezervării — Anglia £ (GBP), Europa € (EUR). Per pasager,
+ *  fiindcă o cursă poate fi mixtă (ex. DAW 777 cu Anglia + Belgia pe excepție). */
+export function currencySymbol(c: string) { return c === "GBP" ? "£" : c === "EUR" ? "€" : c; }
 
 /** Câți pasageri are rezervarea pe cursele acestui card (locuri, altfel pax). */
 export function bookingPax(b: ManifestBooking, tripIds: string[]): number {
@@ -92,6 +94,26 @@ export function computeManifest(g: ManifestGroupLike) {
   const totalPax = rows.length;
   const total = active.reduce((s, b) => s + b.price, 0);
   const paidSum = active.filter((b) => b.paymentStatus === "paid").reduce((s, b) => s + b.price, 0);
-  const symbol = active[0] ? curr(active[0].currency) : "€";
-  return { rows, totalPax, total, paidSum, symbol };
+  // Totaluri PER MONEDĂ — o cursă poate avea Anglia (£) și Europa (€) împreună,
+  // deci nu se pot aduna într-un singur simbol. Fiecare rând își arată moneda lui.
+  const byCur = new Map<string, { total: number; paidSum: number }>();
+  for (const b of active) {
+    const e = byCur.get(b.currency) ?? { total: 0, paidSum: 0 };
+    e.total += b.price;
+    if (b.paymentStatus === "paid") e.paidSum += b.price;
+    byCur.set(b.currency, e);
+  }
+  const totals = [...byCur.entries()]
+    .map(([currency, v]) => ({ currency, symbol: currencySymbol(currency), total: v.total, paidSum: v.paidSum }))
+    .sort((a, b) => b.total - a.total);
+  const symbol = totals[0]?.symbol ?? "€";
+  return { rows, totalPax, total, paidSum, symbol, totals };
+}
+
+/** Formatează totalurile multi-monedă: "4400 € + 2280 £" (sau doar "4400 €"). */
+export function fmtTotals(totals: { symbol: string; total: number; paidSum: number }[], field: "total" | "paidSum" | "due", sp = " ") {
+  const list = totals.length ? totals : [{ symbol: "€", total: 0, paidSum: 0 }];
+  return list
+    .map((t) => `${field === "due" ? t.total - t.paidSum : t[field]}${sp}${t.symbol}`)
+    .join(" + ");
 }

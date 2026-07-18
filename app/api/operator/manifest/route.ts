@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { buildTripGroups } from "@/lib/tripGrouping";
-import { computeManifest } from "@/lib/manifestRows";
+import { computeManifest, currencySymbol, fmtTotals } from "@/lib/manifestRows";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   const g = groups.find((x) => x.key === key);
   if (!g) return NextResponse.json({ success: false, error: "Cursă negăsită" }, { status: 404 });
 
-  const { rows, totalPax, total, paidSum, symbol } = computeManifest(g);
+  const { rows, totalPax, totals } = computeManifest(g);
   const bus = g.busLabel ? `${g.busLabel}${g.busPlate ? ` · ${g.busPlate}` : ""}` : "Fără autocar atribuit";
   const dep = cap(dtFmt.format(new Date(g.departureAt)));
 
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
   // Detalii cursă
   ws.mergeCells("A3:H3");
   const b3 = ws.getCell("A3");
-  b3.value = `${dep}     ·     Pasageri: ${totalPax}${g.capacity ? `  ·  Ocupare: ${totalPax}/${g.capacity}` : ""}     ·     Total: ${total} ${symbol}   (încasat ${paidSum} ${symbol})`;
+  b3.value = `${dep}     ·     Pasageri: ${totalPax}${g.capacity ? `  ·  Ocupare: ${totalPax}/${g.capacity}` : ""}     ·     Total: ${fmtTotals(totals, "total")}   (încasat ${fmtTotals(totals, "paidSum")})`;
   b3.font = { size: 11, color: { argb: "FF475569" } };
   ws.getRow(4).height = 6;
 
@@ -109,9 +109,9 @@ export async function GET(req: NextRequest) {
     // Plată colorat
     const pay = row.getCell(6);
     pay.font = { size: 11, bold: true, color: { argb: r.paid ? "FF059669" : RED } };
-    // Preț cu simbol
+    // Preț cu simbolul monedei PASAGERULUI (Anglia £, Europa €) — cursă mixtă OK
     const price = row.getCell(7);
-    price.numFmt = `#,##0" ${symbol}"`;
+    price.numFmt = `#,##0" ${currencySymbol(r.currency)}"`;
     price.font = { size: 11, bold: true };
     row.height = 20;
   });
@@ -124,8 +124,7 @@ export async function GET(req: NextRequest) {
   tl.font = { bold: true, size: 12, color: { argb: NAVY } };
   tl.alignment = { vertical: "middle", horizontal: "right" };
   const tp = ws.getCell(`G${totalRowIdx}`);
-  tp.value = total;
-  tp.numFmt = `#,##0" ${symbol}"`;
+  tp.value = fmtTotals(totals, "total");
   tp.font = { bold: true, size: 12, color: { argb: NAVY } };
   tp.alignment = { horizontal: "center" };
   ws.getCell(`F${totalRowIdx}`).value = "";
