@@ -139,9 +139,22 @@ export function EditBookingModal({
                     p.removed ? "border-red-200 bg-red-50 opacity-70" : "border-[color:var(--ink-200)] bg-white"
                   }`}
                 >
-                  <span className={`text-sm font-semibold text-[color:var(--navy-900)] ${p.removed ? "line-through" : ""}`}>
-                    {p.first} {p.last}
-                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <input
+                      value={p.first}
+                      disabled={p.removed}
+                      placeholder="Prenume"
+                      onChange={(e) => setPassengers((cur) => cur.map((x, j) => (j === i ? { ...x, first: e.target.value } : x)))}
+                      className={`w-full min-w-0 rounded-lg border border-[color:var(--ink-200)] bg-white px-2.5 py-1.5 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none disabled:bg-transparent ${p.removed ? "line-through opacity-60" : ""}`}
+                    />
+                    <input
+                      value={p.last}
+                      disabled={p.removed}
+                      placeholder="Nume"
+                      onChange={(e) => setPassengers((cur) => cur.map((x, j) => (j === i ? { ...x, last: e.target.value } : x)))}
+                      className={`w-full min-w-0 rounded-lg border border-[color:var(--ink-200)] bg-white px-2.5 py-1.5 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none disabled:bg-transparent ${p.removed ? "line-through opacity-60" : ""}`}
+                    />
+                  </div>
                   <button
                     type="button"
                     disabled={!p.removed && kept.length <= 1}
