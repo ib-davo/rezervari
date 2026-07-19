@@ -102,13 +102,16 @@ function paxOf(b: BookingRow): number {
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
 }
 
-function loadBookings(now: Date) {
+// cutoff = ÎNCEPUTUL zilei de azi (nu „acum"): rezervările care pleacă azi rămân
+// vizibile toată ziua — altfel dispar în secunda în care trece ora plecării, deși
+// cursa e încă la îmbarcare. Aliniat cu query-ul de curse reale (gte: startOfToday).
+function loadBookings(cutoff: Date) {
   return prisma.booking.findMany({
     where: {
       archivedAt: null,
       OR: [
-        { returnDate: { gte: now } },
-        { returnDate: null, departureDate: { gte: now } },
+        { returnDate: { gte: cutoff } },
+        { returnDate: null, departureDate: { gte: cutoff } },
       ],
     },
     select: BOOKING_SELECT,
@@ -135,7 +138,7 @@ type Group = TripGroupData & {
 
 export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; calendar: Record<string, number>; scheduledDays: string[] }> {
   const now = new Date();
-  const bookings = await loadBookings(now);
+  const bookings = await loadBookings(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
 
   const tripIds = [
     ...new Set(bookings.flatMap((b) => [b.tripId, b.returnTripId]).filter((x): x is string => !!x)),
