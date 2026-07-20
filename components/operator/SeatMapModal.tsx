@@ -20,14 +20,20 @@ export function SeatMapModal({ g, layout, onClose }: {
   const [selected, setSelected] = useState<number[]>([]);
   const [inspect, setInspect] = useState<{ seat: number; name: string; route: string; bookingNumber: string; phone: string } | null>(null);
 
-  const active = useMemo(() => g.bookings.filter((b) => b.status !== "cancelled"), [g.bookings]);
+  // Circuit fizic (DAW 077 duminică↔luni): includem și rezervările fraților, ca
+  // locurile luate în cealaltă zi să apară ocupate (același autocar).
+  const active = useMemo(
+    () => [...g.bookings, ...(g.circuitBookings ?? [])].filter((b) => b.status !== "cancelled"),
+    [g.bookings, g.circuitBookings],
+  );
+  const allTripIds = useMemo(() => [...g.tripIds, ...(g.circuitTripIds ?? [])], [g.tripIds, g.circuitTripIds]);
 
   // locuri ocupate + cine le ocupă
   const { occupied, seatInfo } = useMemo(() => {
     const occ: number[] = [];
     const info = new Map<number, { name: string; route: string; bookingNumber: string; phone: string }>();
     for (const b of active) {
-      const seats = (b.seatBookings || []).filter((s) => g.tripIds.includes(s.tripId)).map((s) => s.seatNumber);
+      const seats = (b.seatBookings || []).filter((s) => allTripIds.includes(s.tripId)).map((s) => s.seatNumber);
       if (!seats.length) continue;
       occ.push(...seats);
       const pax = expandPassengers(b as unknown as ManifestBooking, seats);
@@ -37,7 +43,7 @@ export function SeatMapModal({ g, layout, onClose }: {
       });
     }
     return { occupied: occ, seatInfo: info };
-  }, [active, g.tripIds]);
+  }, [active, allTripIds]);
 
   // link „rezervă pe locurile alese" — duce în formular cu cursa + locurile pre-selectate.
   const bookHref = useMemo(() => {

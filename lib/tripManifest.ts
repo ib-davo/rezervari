@@ -19,6 +19,10 @@ export type TripGroup = {
   // Belgia/Luxemburg = același autocar, 54 locuri). Setat pe toate cardurile
   // circuitului; când e prezent, ocuparea afișată = totalul combinat.
   circuitOcc?: { taken: number; capacity: number } | null;
+  // Rezervările + cursele fraților din circuitul fizic (DAW 077 duminică↔luni) —
+  // harta le arată ocupate ca să nu se suprarezerveze cealaltă zi.
+  circuitTripIds?: string[];
+  circuitBookings?: OperatorBooking[];
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };

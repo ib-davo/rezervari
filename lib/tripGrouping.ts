@@ -55,6 +55,11 @@ export type TripGroupData = {
   capacity: number | null;
   seatsTaken: number;
   circuitOcc?: { taken: number; capacity: number } | null;
+  // Rezervările + cursele FRAȚILOR din circuitul fizic (DAW 077 duminică↔luni,
+  // același autocar). Harta le arată ocupate ca operatorul să nu suprarezerveze
+  // pe cealaltă zi un loc deja luat.
+  circuitTripIds?: string[];
+  circuitBookings?: BookingRow[];
   dayKey: string;
   multi: boolean;
   add: { tripId?: string; from?: string; to?: string; date?: string; countries?: string[] };
@@ -526,7 +531,14 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     if (gs.length < 2) continue; // un singur card în circuit → nimic de partajat
     const taken = gs.reduce((s, g) => s + g.seatsTaken, 0);
     const capacity = Math.max(0, ...gs.map((g) => g.capacity ?? 0));
-    for (const g of gs) g.circuitOcc = { taken, capacity };
+    for (const g of gs) {
+      g.circuitOcc = { taken, capacity };
+      // Locurile ocupate pe celelalte zile ale aceluiași autocar → harta lui le
+      // marchează ocupate (același loc fizic e luat pe tot circuitul).
+      const siblings = gs.filter((s) => s !== g);
+      g.circuitTripIds = siblings.flatMap((s) => s.tripIds);
+      g.circuitBookings = siblings.flatMap((s) => s.bookings);
+    }
   }
 
   // DAW 077 ia Belgia (04:00) + Luxemburg (07:00) LUNI dimineața. În DB cursa reală
