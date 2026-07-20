@@ -17,14 +17,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const now = new Date();
+  // Arhivăm abia la 24h DUPĂ plecare (retur dacă există), aliniat cu vizibilitatea
+  // din panou (loadBookings folosește același prag now−24h). Altfel cursele care
+  // tocmai au plecat azi ar dispărea permanent din panou în aceeași zi.
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const res = await prisma.booking.updateMany({
     where: {
       archivedAt: null,
       OR: [
-        { returnDate: null, departureDate: { lt: now } },
-        { returnDate: { not: null, lt: now } },
+        { returnDate: null, departureDate: { lt: cutoff } },
+        { returnDate: { not: null, lt: cutoff } },
       ],
     },
     data: { archivedAt: new Date() },

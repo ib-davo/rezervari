@@ -102,9 +102,9 @@ function paxOf(b: BookingRow): number {
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
 }
 
-// cutoff = ÎNCEPUTUL zilei de azi (nu „acum"): rezervările care pleacă azi rămân
-// vizibile toată ziua — altfel dispar în secunda în care trece ora plecării, deși
-// cursa e încă la îmbarcare. Aliniat cu query-ul de curse reale (gte: startOfToday).
+// cutoff = acum − 24h: rezervarea rămâne vizibilă încă 24h DUPĂ ora plecării
+// (sau a returului), ca operatorul să aibă timp după ce cursa a pornit — abia apoi
+// dispare din panou. Pentru tur-retur contează returul (ultima etapă).
 function loadBookings(cutoff: Date) {
   return prisma.booking.findMany({
     where: {
@@ -138,7 +138,7 @@ type Group = TripGroupData & {
 
 export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; calendar: Record<string, number>; scheduledDays: string[] }> {
   const now = new Date();
-  const bookings = await loadBookings(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
+  const bookings = await loadBookings(new Date(now.getTime() - 24 * 60 * 60 * 1000));
 
   const tripIds = [
     ...new Set(bookings.flatMap((b) => [b.tripId, b.returnTripId]).filter((x): x is string => !!x)),
