@@ -84,6 +84,7 @@ export default function TripsView() {
   const [calendar, setCalendar] = useState<Record<string, number>>({});
   const [scheduledDays, setScheduledDays] = useState<Set<string>>(new Set());
   const [buses, setBuses] = useState<BusOption[]>([]);
+  const [isSup, setIsSup] = useState(false); // supervizor (Adrian) — poate muta autocarul unei rute
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [q, setQ] = useState("");
@@ -115,6 +116,14 @@ export default function TripsView() {
     fetch("/api/operator/buses")
       .then((r) => r.json())
       .then((d) => { if (d?.success) setBuses(d.buses); })
+      .catch(() => {});
+  }, []);
+
+  // Rolul (doar supervizorul poate muta complet autocarul unei rute).
+  useEffect(() => {
+    fetch("/api/operator/me")
+      .then((r) => r.json())
+      .then((d) => { if (d?.success) setIsSup(!!d.operator?.isSupervisor); })
       .catch(() => {});
   }, []);
 
@@ -200,7 +209,15 @@ export default function TripsView() {
     return groups
       .map((g) => ({ ...g, bookings: g.bookings.filter(matchBooking) }))
       // Cursele goale (fără rezervări) apar doar când NU cauți (n-au ce potrivi).
-      .filter((g) => (g.kind === "empty" ? !searching : g.bookings.length > 0))
+      // „Fără autocar" (busId null) apare DOAR dacă are rezervări ACTIVE de atribuit
+      // — nu arătăm un card gol doar fiindcă are o rezervare anulată agățată.
+      .filter((g) =>
+        g.kind === "empty"
+          ? !searching
+          : g.busId === null
+            ? g.bookings.some((b) => b.status !== "cancelled")
+            : g.bookings.length > 0,
+      )
       .filter((g) => searching || g.dayKey === selectedDay);
   }, [groups, matchBooking, searching, selectedDay]);
 
@@ -379,7 +396,7 @@ export default function TripsView() {
           {visibleGroups.map((g) => (
             // Cheie dependentă de căutare: cardurile se remontează la trecerea
             // căutare pornit/oprit, ca `expanded` să pornească din starea corectă.
-            <TripCard key={searching ? `${g.key}:s` : g.key} g={g} onAct={act} showDay={searching} buses={buses} />
+            <TripCard key={searching ? `${g.key}:s` : g.key} g={g} onAct={act} showDay={searching} buses={buses} isSup={isSup} onReload={load} />
           ))}
         </div>
       )}
@@ -404,11 +421,13 @@ function SkeletonTrips() {
   );
 }
 
-function TripCard({ g, onAct, showDay, buses }: {
+function TripCard({ g, onAct, showDay, buses, isSup, onReload }: {
   g: TripGroup;
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
   showDay: boolean;
   buses: BusOption[];
+  isSup: boolean;
+  onReload: () => void;
 }) {
   // Colapsat implicit — se desfășoară pasagerii la click pe antet (ca să nu dai
   // scroll între autocare). La căutare pornește desfășurat.
@@ -600,6 +619,7 @@ function TripCard({ g, onAct, showDay, buses }: {
             >
               <Printer className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> PDF
             </button>
+            {isSup && <MoveBus g={g} buses={buses} onDone={onReload} />}
           </div>
 
           {/* Pasageri ACTIVI (anulatele NU apar aici) */}
@@ -633,6 +653,48 @@ function TripCard({ g, onAct, showDay, buses }: {
       )}
       {seatMapOpen && <SeatMapModal g={g} layout={busLayout} onClose={() => setSeatMapOpen(false)} />}
     </div>
+  );
+}
+
+// Mutarea COMPLETĂ a autocarului unei rute (doar supervizor): setează manualBusId
+// pe TOATE rezervările cardului → apar pe alt autocar. Locuri, prețuri, tripId și
+// seatBookings rămân neatinse. „Revenire automată" = manualBusId null (autocarul
+// dedus din rută). Ex: rută pusă greșit pe ZNQ 874 → mutată pe DAW 777.
+function MoveBus({ g, buses, onDone }: { g: TripGroup; buses: BusOption[]; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const move = async (raw: string) => {
+    if (!raw || busy) return;
+    const busId = raw === "__auto__" ? null : raw;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/operator/trips/move-bus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: g.key, busId }),
+      });
+      const d = await res.json();
+      if (d.success) onDone();
+      else alert(d.error || "Nu s-a putut muta autocarul");
+    } catch {
+      alert("Eroare la mutarea autocarului");
+    }
+    setBusy(false);
+  };
+  return (
+    <select
+      disabled={busy}
+      value=""
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => { const v = e.target.value; e.currentTarget.value = ""; move(v); }}
+      title="Mută TOATE rezervările acestei curse pe alt autocar"
+      className="inline-flex cursor-pointer items-center rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)]"
+    >
+      <option value="">⇄ Mută pe autocar…</option>
+      {buses.filter((b) => b.id !== g.busId).map((b) => (
+        <option key={b.id} value={b.id}>{b.label}{b.plate ? ` · ${b.plate}` : ""}</option>
+      ))}
+      <option value="__auto__">↩︎ Revenire automată (după rută)</option>
+    </select>
   );
 }
 
