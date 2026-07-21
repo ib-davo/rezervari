@@ -234,10 +234,15 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     if (legKind === "ret" && !trip) return;
 
     let bus: JourneyBus | null = null;
-    if (trip?.bus) bus = { id: trip.bus.id, label: trip.bus.label, plate: trip.bus.plate ?? null, totalSeats: trip.bus.totalSeats ?? null };
-    else if (legKind === "dep" && b.manualBusId && busMap.has(b.manualBusId)) {
+    // manualBusId = override EXPLICIT al operatorului (mutarea unei rute) → învinge
+    // autocarul cursei reale, pe AMBELE legi, ca „vineri X → duminică X" să rămână
+    // adevărat inclusiv pentru rezervările de pe cursă reală. Nu atinge tripId /
+    // seatBookings (locurile rămân corecte). Fără manualBusId → autocarul cursei.
+    if (b.manualBusId && busMap.has(b.manualBusId)) {
       const mb = busMap.get(b.manualBusId)!;
       bus = { id: mb.id, label: mb.label, plate: mb.plate ?? null, totalSeats: mb.totalSeats ?? null };
+    } else if (trip?.bus) {
+      bus = { id: trip.bus.id, label: trip.bus.label, plate: trip.bus.plate ?? null, totalSeats: trip.bus.totalSeats ?? null };
     }
 
     const oName = trip?.route?.originCity?.name ?? b.departureCity;
