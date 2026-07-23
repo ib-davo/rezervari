@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { cancelForBooking, enqueueRemindersOnly } from "@/lib/emailQueue";
+import { seatDataForBooking } from "@/lib/operatorSeats";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const body = await req.json();
 
-  // ===== Editare rezervare (anulare parțială + adresă + preț) =====
+  // ===== Editare rezervare (anulare parțială + adresă + preț + locuri) =====
   // { edit: { firstName?, lastName?, adults?, departureCity?, arrivalCity?,
-  //           price?, freeSeats?: [{tripId, seatNumber}] } }
+  //           price?, freeSeats?: [{tripId, seatNumber}],
+  //           seats?: [{tripId, seatNumbers:number[]}] } }
   // Folosit când un pasager dintr-un grup renunță: operatorul îl scoate,
   // eliberează locul lui (dus + retur) și ajustează prețul/adresa.
   if (body.edit && typeof body.edit === "object") {
@@ -77,12 +79,55 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
     }
 
-    // Locurile de eliberat trebuie să aparțină acestei rezervări.
+    // ===== Locuri =====
+    // Două căi (modalul trimite una SAU alta per cursă, nu ambele):
+    //  • seats: reconciliază TOATE locurile rezervării pe o cursă la mulțimea nouă
+    //    (schimbare de loc din hartă). Validăm circuit-aware — fiecare loc nou să fie
+    //    valid în schemă și liber (ne-ocupat de ALȚII pe rulare + circuitul DAW 077).
+    //  • freeSeats: eliberează locuri anume (pasager care renunță) — șterge rândurile.
+    const seatsRaw = Array.isArray(e.seats) ? e.seats : [];
+    const reconcile: { tripId: string; seatNumbers: number[] }[] = [];
+    if (seatsRaw.length > 0) {
+      const segData = await seatDataForBooking(id);
+      const byTrip = new Map(segData.map((s) => [s.tripId, s]));
+      for (const raw of seatsRaw) {
+        const r = raw as { tripId?: unknown; seatNumbers?: unknown };
+        const t = String(r?.tripId ?? "");
+        if (t !== booking.tripId && t !== booking.returnTripId) {
+          return NextResponse.json({ success: false, error: "Cursă necunoscută pentru locuri" }, { status: 400 });
+        }
+        const nums = Array.isArray(r?.seatNumbers) ? r.seatNumbers.map((x) => Number(x)) : [];
+        if (nums.some((n) => !Number.isInteger(n) || n < 1)) {
+          return NextResponse.json({ success: false, error: "Număr de loc invalid" }, { status: 400 });
+        }
+        if (new Set(nums).size !== nums.length) {
+          return NextResponse.json({ success: false, error: "Același loc ales de două ori" }, { status: 400 });
+        }
+        const seg = byTrip.get(t);
+        if (seg) {
+          const occ = new Set(seg.occupied); // ocupate de ALȚII (propriile locuri sunt excluse)
+          const valid = seg.layoutSeats.length ? new Set(seg.layoutSeats) : null;
+          for (const n of nums) {
+            if (occ.has(n)) {
+              return NextResponse.json({ success: false, error: `Locul ${n} e deja ocupat` }, { status: 409 });
+            }
+            if (valid && !valid.has(n)) {
+              return NextResponse.json({ success: false, error: `Locul ${n} nu există în acest autocar` }, { status: 400 });
+            }
+          }
+        }
+        reconcile.push({ tripId: t, seatNumbers: nums });
+      }
+    }
+
+    // freeSeats: doar pentru cursele NEreconciliate (reconcilierea le rescrie oricum).
+    const seatTripIds = new Set(reconcile.map((r) => r.tripId));
     const freeSeats = Array.isArray(e.freeSeats) ? e.freeSeats : [];
     const toDelete: string[] = [];
     for (const raw of freeSeats) {
       const fs = raw as { tripId?: unknown; seatNumber?: unknown };
       const t = String(fs?.tripId ?? "");
+      if (seatTripIds.has(t)) continue;
       const n = Number(fs?.seatNumber);
       const row = booking.seatBookings.find((s) => s.tripId === t && s.seatNumber === n);
       if (!row) {
@@ -91,12 +136,29 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       toDelete.push(row.id);
     }
 
-    await prisma.$transaction(async (tx) => {
-      if (toDelete.length > 0) {
-        await tx.seatBooking.deleteMany({ where: { id: { in: toDelete }, bookingId: id } });
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (toDelete.length > 0) {
+          await tx.seatBooking.deleteMany({ where: { id: { in: toDelete }, bookingId: id } });
+        }
+        // Reconciliere loc: șterge locurile proprii pe cursă, apoi pune-le pe cele noi.
+        for (const r of reconcile) {
+          await tx.seatBooking.deleteMany({ where: { bookingId: id, tripId: r.tripId } });
+          if (r.seatNumbers.length > 0) {
+            await tx.seatBooking.createMany({
+              data: r.seatNumbers.map((n) => ({ tripId: r.tripId, seatNumber: n, bookingId: id })),
+            });
+          }
+        }
+        await tx.booking.update({ where: { id }, data: upd });
+      });
+    } catch (err) {
+      // @@unique([tripId, seatNumber]): cineva a luat locul între validare și salvare.
+      if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
+        return NextResponse.json({ success: false, error: "Un loc tocmai a fost ocupat de altcineva — reîncarcă și încearcă din nou." }, { status: 409 });
       }
-      await tx.booking.update({ where: { id }, data: upd });
-    });
+      throw err;
+    }
 
     return NextResponse.json({ success: true });
   }

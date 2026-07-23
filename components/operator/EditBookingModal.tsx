@@ -1,8 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Loader2, Trash2, Undo2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Trash2, Undo2, X, Armchair } from "lucide-react";
 import type { OperatorBooking } from "./BookingsView";
+import { BusSeatMap } from "@/components/booking/BusSeatMap";
+import type { BusLayout } from "@/lib/adminMock";
+
+// Datele de locuri pe un segment (răspunsul /bookings/[id]/seats). Ocuparea e
+// circuit-aware (vezi lib/operatorSeats) — identică cu harta din panou.
+type Segment = {
+  segment: "out" | "ret";
+  tripId: string;
+  busLabel: string | null;
+  busPlate: string | null;
+  layout: BusLayout | null;
+  layoutSeats: number[];
+  occupied: number[];
+  mine: number[];
+  capacity: number | null;
+};
 
 // Editare rezervare: anulare parțială (un pasager din grup renunță → îl scoți,
 // îi eliberezi locul pe dus + retur), adresă liberă și preț. Numele pasagerilor
@@ -42,12 +58,51 @@ export function EditBookingModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Locuri (hartă): segmentele cu schema autocarului + ce e ocupat. Selecția pe
+  // fiecare cursă (tripId → numere de loc) e editabilă din hartă.
+  const [segments, setSegments] = useState<Segment[] | null>(null);
+  const [seatSel, setSeatSel] = useState<Record<string, number[]>>({});
+  const [seatsErr, setSeatsErr] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/operator/bookings/${b.id}/seats`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        if (d?.success && Array.isArray(d.segments)) {
+          setSegments(d.segments as Segment[]);
+          const sel: Record<string, number[]> = {};
+          for (const s of d.segments as Segment[]) sel[s.tripId] = [...s.mine].sort((a, b) => a - b);
+          setSeatSel(sel);
+        } else {
+          setSeatsErr(true);
+        }
+      })
+      .catch(() => alive && setSeatsErr(true));
+    return () => {
+      alive = false;
+    };
+  }, [b.id]);
+
   const isPassenger = b.type !== "parcel";
   const kept = passengers.filter((p) => !p.removed);
   const removedCount = passengers.length - kept.length;
 
   const outSeats = b.seatBookings.filter((s) => s.tripId === b.tripId);
   const retSeats = b.returnTripId ? b.seatBookings.filter((s) => s.tripId === b.returnTripId) : [];
+
+  // Segmentele cu schema autocarului le edităm din hartă; restul rămân pe chip-uri.
+  const mapSegs = useMemo(() => (segments ?? []).filter((s) => s.layout), [segments]);
+  const mapTripIds = useMemo(() => new Set(mapSegs.map((s) => s.tripId)), [mapSegs]);
+  // Câte locuri trebuie pe un segment: pasageri păstrați (colet = câte are acum).
+  const requiredSeats = (seg: Segment) => (isPassenger ? kept.length : seg.mine.length);
+  // Chip-uri de eliberat DOAR pentru cursele fără hartă (fallback).
+  const chipOutSeats = outSeats.filter((s) => !mapTripIds.has(s.tripId));
+  const chipRetSeats = retSeats.filter((s) => !mapTripIds.has(s.tripId));
+  // Cât timp harta se încarcă și rezervarea are locuri, nu lăsăm salvarea (ai
+  // putea scoate un pasager fără să poți încă potrivi locul rămas).
+  const seatsLoading = segments === null && !seatsErr && (outSeats.length > 0 || retSeats.length > 0);
 
   const toggleSeat = (tripId: string, seatNumber: number) => {
     const key = `${tripId}|${seatNumber}`;
@@ -59,11 +114,12 @@ export function EditBookingModal({
     });
   };
 
-  // Sugestie proporțională: prețul curent / pasageri × câți rămân.
-  const suggested = useMemo(() => {
-    if (!isPassenger || passengers.length === 0) return null;
-    return Math.round((b.price / passengers.length) * kept.length);
-  }, [b.price, passengers.length, kept.length, isPassenger]);
+  // Sugestie proporțională: prețul curent / pasageri × câți rămân. Calcul ieftin,
+  // fără useMemo (kept e recreat la fiecare render — memoizarea nu s-ar păstra).
+  const suggested =
+    !isPassenger || passengers.length === 0
+      ? null
+      : Math.round((b.price / passengers.length) * kept.length);
 
   const save = async () => {
     setError(null);
@@ -76,6 +132,24 @@ export function EditBookingModal({
       setError("Preț invalid.");
       return;
     }
+
+    // Locuri din hartă. Trimitem `seats` doar pentru segmentele schimbate. Impunem
+    // „câte un loc de fiecare pasager păstrat" DOAR când operatorul chiar atinge
+    // locurile sau scoate un pasager — altfel o editare de preț n-ar trebui blocată
+    // de o rezervare cu date vechi (locuri ≠ pasageri).
+    const seats: { tripId: string; seatNumbers: number[] }[] = [];
+    for (const seg of mapSegs) {
+      const sel = (seatSel[seg.tripId] ?? []).slice().sort((a, c) => a - c);
+      const mine = seg.mine.slice().sort((a, c) => a - c);
+      const changed = sel.length !== mine.length || sel.some((n, i) => n !== mine[i]);
+      const req = requiredSeats(seg);
+      if ((changed || removedCount > 0) && sel.length !== req) {
+        setError(`Selectează exact ${req} ${req === 1 ? "loc" : "locuri"} pe ${seg.segment === "out" ? "Dus" : "Retur"} (ai ales ${sel.length}).`);
+        return;
+      }
+      if (changed) seats.push({ tripId: seg.tripId, seatNumbers: sel });
+    }
+
     setSaving(true);
     const edit: Record<string, unknown> = {
       departureCity: depCity.trim(),
@@ -87,10 +161,14 @@ export function EditBookingModal({
       notes: notes.trim(),
       departureDate: depDate,
       returnDate: retDate || null,
-      freeSeats: [...freed].map((k) => {
-        const i = k.lastIndexOf("|");
-        return { tripId: k.slice(0, i), seatNumber: Number(k.slice(i + 1)) };
-      }),
+      // Eliberare doar pe cursele fără hartă (chip-uri); cele cu hartă merg prin `seats`.
+      freeSeats: [...freed]
+        .map((k) => {
+          const i = k.lastIndexOf("|");
+          return { tripId: k.slice(0, i), seatNumber: Number(k.slice(i + 1)) };
+        })
+        .filter((f) => !mapTripIds.has(f.tripId)),
+      ...(seats.length ? { seats } : {}),
     };
     if (isPassenger) {
       edit.firstName = kept.map((p) => p.first).join(", ");
@@ -188,27 +266,66 @@ export function EditBookingModal({
             </div>
             {removedCount > 0 && (outSeats.length > 0 || retSeats.length > 0) && (
               <p className="mt-2 text-xs font-semibold text-amber-700">
-                Ai scos {removedCount} pasager{removedCount > 1 ? "i" : ""} — eliberează mai jos și locul lui pe fiecare segment.
+                Ai scos {removedCount} pasager{removedCount > 1 ? "i" : ""} — potrivește locurile mai jos (câte un loc pentru fiecare pasager păstrat).
               </p>
             )}
           </div>
         )}
 
-        {(outSeats.length > 0 || retSeats.length > 0) && (
+        {/* Se încarcă harta locurilor */}
+        {seatsLoading && (
+          <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-[color:var(--ink-500)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Se încarcă harta locurilor…
+          </div>
+        )}
+
+        {/* Locuri — hartă: schimbi locul (vezi ce e liber) */}
+        {mapSegs.map((seg) => {
+          const sel = seatSel[seg.tripId] ?? [];
+          const req = requiredSeats(seg);
+          return (
+            <div key={seg.tripId} className="mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">
+                  <Armchair className="h-3.5 w-3.5" /> Locuri {seg.segment === "out" ? "dus" : "retur"}
+                  {seg.busPlate ? ` · ${seg.busPlate}` : ""}
+                </div>
+                <div className={`text-xs font-bold ${sel.length === req ? "text-emerald-600" : "text-amber-600"}`}>
+                  {sel.length}/{req} {req === 1 ? "loc" : "locuri"}
+                </div>
+              </div>
+              <p className="mt-1 text-[11px] text-[color:var(--ink-500)]">
+                Apasă un loc liber ca să-l alegi, pe cel roșu ca să-l eliberezi. Locurile ocupate de alți pasageri sunt blocate.
+              </p>
+              <div className="mt-2">
+                <BusSeatMap
+                  layout={seg.layout!}
+                  occupiedSeats={seg.occupied}
+                  selected={sel}
+                  onSelect={(nums) => setSeatSel((cur) => ({ ...cur, [seg.tripId]: nums }))}
+                  max={req}
+                />
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Fallback: curse fără schemă → chip-uri de eliberare (ca înainte) */}
+        {(seatsErr || segments !== null) && (chipOutSeats.length > 0 || chipRetSeats.length > 0) && (
           <div className="mt-4">
             <div className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">
               Locuri (apasă ca să eliberezi)
             </div>
-            {outSeats.length > 0 && (
+            {chipOutSeats.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span className="text-xs font-semibold text-[color:var(--ink-500)]">Dus:</span>
-                {outSeats.map((s) => seatChip(s.tripId, s.seatNumber))}
+                {chipOutSeats.map((s) => seatChip(s.tripId, s.seatNumber))}
               </div>
             )}
-            {retSeats.length > 0 && (
+            {chipRetSeats.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 <span className="text-xs font-semibold text-[color:var(--ink-500)]">Retur:</span>
-                {retSeats.map((s) => seatChip(s.tripId, s.seatNumber))}
+                {chipRetSeats.map((s) => seatChip(s.tripId, s.seatNumber))}
               </div>
             )}
           </div>
@@ -332,7 +449,7 @@ export function EditBookingModal({
           </button>
           <button
             onClick={save}
-            disabled={saving}
+            disabled={saving || seatsLoading}
             className="inline-flex items-center gap-2 rounded-full bg-[color:var(--red-500)] px-5 py-2 text-sm font-semibold text-white hover:bg-[color:var(--red-600)] disabled:opacity-60"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
