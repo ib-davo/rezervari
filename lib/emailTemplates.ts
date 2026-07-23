@@ -1,6 +1,15 @@
 import type { Booking } from "@prisma/client";
 import { appUrl } from "@/lib/appUrl";
 
+// Salut cu PRENUMELE. Convenția DAVO (formular „Nume prenume") pune numele de
+// familie în firstName și prenumele în lastName → prenumele = lastName. Pentru
+// grupuri (nume unite cu ", ") luăm primul pasager. Fallback pe firstName dacă
+// lastName lipsește. Așa emailul zice „Salut Damian", nu „Salut Bobernaga".
+function greetName(x: { firstName?: string | null; lastName?: string | null }): string {
+  const given = (x.lastName || "").split(",")[0].trim();
+  return given || (x.firstName || "").split(",")[0].trim();
+}
+
 // Ora plecării/întoarcerii e introdusă mereu în ora locală Moldovei (admin +
 // flow public). Serverul (Vercel) rulează în UTC, deci fără `timeZone` ar
 // afișa orele cu 3h mai puțin în emailuri — clientul vede "04:00" pentru o
@@ -233,6 +242,8 @@ export type ConfirmationData = {
   type: "passenger" | "parcel";
   tripType?: "one-way" | "round-trip";
   firstName: string;
+  // Prenumele (pentru salut) — convenția DAVO pune prenumele în lastName.
+  lastName?: string | null;
   departureCity: string;
   arrivalCity: string;
   departureDate: Date;
@@ -314,7 +325,7 @@ export function confirmationHtml(b: ConfirmationData, urls?: ResponseUrls): stri
   rows.push({ label: "Nr. rezervare", value: b.bookingNumber });
 
   const body = `
-    ${headline(`Bună ${b.firstName},<br>te așteptăm la cursă.`)}
+    ${headline(`Bună ${greetName(b)},<br>te așteptăm la cursă.`)}
     ${intro(
       isParcel
         ? "Mai jos găsești detaliile transportului. Te sunăm în curând pentru ridicare și confirmare."
@@ -343,7 +354,7 @@ export function reminder24hHtml(b: Booking, urls?: ResponseUrls, scheduledDepart
     ? `${formatDate(b.departureDate)} · ${depTime}`
     : formatDate(b.departureDate);
   const body = `
-    ${headline(`${b.firstName}, mâine e ziua mare.`)}
+    ${headline(`${greetName(b)}, mâine e ziua mare.`)}
     ${intro(`Cursa ta <strong style="color:${C.navy900};">${b.departureCity} → ${b.arrivalCity}</strong> pleacă mâine. Vezi detaliile și confirmă-ne că vii.`)}
     ${detailsCard([
       { label: "Cursa", value: `${b.departureCity} → ${b.arrivalCity}` },
@@ -377,7 +388,7 @@ export function cancellationHtml(b: Booking): string {
       : "Plata urma să se facă la îmbarcare/livrare, deci nu există o sumă de rambursat.";
 
   const body = `
-    ${headline(`${b.firstName}, rezervarea a fost anulată.`)}
+    ${headline(`${greetName(b)}, rezervarea a fost anulată.`)}
     ${intro(refundLine)}
     ${detailsCard([
       { label: "Cursa", value: `${b.departureCity} → ${b.arrivalCity}` },
@@ -404,6 +415,8 @@ export function cancellationHtml(b: Booking): string {
 
 export type RescheduleData = {
   firstName: string;
+  // Prenumele (pentru salut) — vezi greetName. Convenția DAVO: prenume = lastName.
+  lastName?: string | null;
   departureCity: string;
   arrivalCity: string;
   oldDate: Date;
@@ -426,7 +439,7 @@ export function rescheduleHtml(d: RescheduleData): string {
   rows.push({ label: "Nr. rezervare", value: d.bookingNumber });
 
   const body = `
-    ${headline(`${d.firstName}, rezervarea ta a fost modificată.`)}
+    ${headline(`${greetName(d)}, rezervarea ta a fost modificată.`)}
     ${intro(`Am actualizat, la cererea ta, data${d.seats ? ` și ${multi ? "locurile" : "locul"}` : ""} pentru cursa <strong style="color:${C.navy900};">${d.departureCity} → ${d.arrivalCity}</strong>. Restul rezervării rămâne neschimbat. Detaliile noi:`)}
     ${detailsCard(rows)}
     <p style="margin:0;font-family:${FONT_BODY};font-size:14px;color:${C.ink700};line-height:1.6;">

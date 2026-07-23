@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: { id },
       select: {
         id: true, status: true, type: true, tripType: true, adults: true, children: true,
-        firstName: true, email: true, bookingNumber: true, departureCity: true, arrivalCity: true,
+        firstName: true, lastName: true, email: true, bookingNumber: true, departureCity: true, arrivalCity: true,
         departureDate: true, returnDate: true, tripId: true, returnTripId: true,
       },
     });
@@ -110,6 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (booking.email) {
       const r = await sendRescheduleConfirmation({
         firstName: booking.firstName,
+        lastName: booking.lastName,
         departureCity: booking.departureCity,
         arrivalCity: booking.arrivalCity,
         oldDate,
