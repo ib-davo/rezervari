@@ -517,51 +517,6 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       });
     }
   }
-  // (C) DAW 777 (Astromega, dublu-etaj) rulează SUPLIMENTAR lângă ZNQ 874 pe ruta
-  // de vineri (Belgia/Olanda/Germania): dus vineri, retur duminică — se schimbă
-  // periodic cu ZNQ. Card GOL dedicat, garantat lângă ZNQ: NU e suprimat de
-  // acoperirea reală ZNQ (aceea e per-direcție), ci DOAR de propriile rezervări /
-  // curse reale DAW 777 (existingKeys pe busId). Pur aditiv — nu atinge plasarea.
-  const daw777 = busByPlate.get("DAW 777");
-  if (daw777) {
-    for (let i = 0; i < YEAR_DAYS; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
-      const znqRun = scheduledRunsForDate(d, countrySchedule).find((r) => r.plate === "ZNQ 874");
-      if (!znqRun) continue; // zi fără ZNQ (nu e vineri/duminică) → fără DAW 777
-      const dk = dayKey(d);
-      const key = `${dk}:bus:${daw777.id}`;
-      if (existingKeys.has(key)) continue; // DAW 777 are deja rezervări / cursă reală atunci
-      existingKeys.add(key);
-      scheduledDaysSet.add(dk);
-      const countriesStr = [...new Set(znqRun.countries)].sort((a, b) => a.localeCompare(b, "ro")).join(", ");
-      const [hh, mm] = (znqRun.time || "12:00").split(":").map((n) => Number(n) || 0);
-      const iso = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm).toISOString();
-      list.push({
-        kind: "empty",
-        key,
-        busId: daw777.id,
-        busLabel: daw777.label,
-        busPlate: daw777.plate ?? null,
-        from: znqRun.inbound ? countriesStr : "Chișinău",
-        to: znqRun.inbound ? "Chișinău" : countriesStr,
-        departureAt: iso,
-        arrivalAt: null,
-        capacity: daw777.totalSeats ?? null,
-        seatsTaken: 0,
-        dayKey: dk,
-        multi: false,
-        add: {
-          date: dk,
-          countries: [...new Set(znqRun.countries)],
-          ...(znqRun.inbound
-            ? { to: "Chișinău, Moldova", ...(znqRun.countries.length === 1 ? { from: znqRun.countries[0] } : {}) }
-            : { from: "Chișinău, Moldova", ...(znqRun.countries.length === 1 ? { to: znqRun.countries[0] } : {}) }),
-        },
-        tripIds: [],
-        bookings: [],
-      });
-    }
-  }
 
   // Ocupare PARTAJATĂ pe circuitul DAW 077 retur: duminică (Anglia) + luni (Belgia
   // 04:00 / Luxemburg 07:00) = ACELAȘI autocar fizic, 54 locuri. Ambele carduri
