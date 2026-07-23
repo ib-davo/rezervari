@@ -465,10 +465,12 @@ export function adminNotificationHtml(b: ConfirmationData): string {
   const plecareValue = depTime
     ? `${formatDate(b.departureDate)} · ${depTime}`
     : formatDate(b.departureDate);
+  // Nume complet „Nume Prenume" (ex. „Gutan Maxim"); titlul folosește doar prenumele.
+  const fullName = [b.firstName, b.lastName].map((x) => (x || "").trim()).filter(Boolean).join(" ");
   const rows: DetailRow[] = [
     { label: "Nr. rezervare", value: b.bookingNumber },
     { label: "Tip", value: isParcel ? "Colet" : "Pasager" },
-    { label: "Client", value: b.firstName },
+    { label: "Client", value: fullName || b.firstName },
     { label: "Cursa", value: `${b.departureCity} → ${b.arrivalCity}` },
     { label: "Plecare", value: plecareValue },
   ];
@@ -479,7 +481,8 @@ export function adminNotificationHtml(b: ConfirmationData): string {
   rows.push({ label: "Plata", value: payLabel(b.payMethod) });
 
   const body = `
-    ${headline(`${b.firstName} a făcut o rezervare.`)}
+    ${headline(`${greetName(b)} a făcut o rezervare.`)}
+    <p style="margin:-6px 0 22px;font-family:${FONT_BODY};font-size:14px;font-weight:600;color:${C.ink500};line-height:1.3;">${fullName}</p>
     ${detailsCard(rows)}
     <div style="text-align:center;">
       <a href="${appUrl()}/admin/bookings"
