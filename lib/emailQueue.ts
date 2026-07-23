@@ -79,6 +79,55 @@ export async function enqueueForBooking(bookingId: string) {
   return { enqueued: jobs.length };
 }
 
+// Autocarul de pe „foaia fizică": manualBusId (mutare operator) are prioritate față
+// de cursa reală, ca emailul să arate autocarul PE CARE MERGE de fapt pasagerul.
+async function coachOf(booking: Booking): Promise<{ label: string | null; plate: string | null } | null> {
+  if (booking.manualBusId) {
+    return prisma.bus.findUnique({ where: { id: booking.manualBusId }, select: { label: true, plate: true } });
+  }
+  if (booking.tripId) {
+    const t = await prisma.trip.findUnique({ where: { id: booking.tripId }, select: { bus: { select: { label: true, plate: true } } } });
+    return t?.bus ?? null;
+  }
+  return null;
+}
+
+// Trimite ACUM confirmarea (cu autocarul ACTUAL) pentru o rezervare. Folosit când
+// operatorul (Adrian) MUTĂ ruta pe alt autocar → pasagerii primesc emailul cu
+// autocarul nou, fix ca la atribuirea din davo.md/admin.
+export async function sendConfirmationNow(bookingId: string): Promise<{ sent: boolean }> {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking || !booking.email || booking.status === "cancelled") return { sent: false };
+  const bus = await coachOf(booking);
+  const urls = await buildResponseUrls(booking.bookingNumber);
+  const result = await sendBookingConfirmation({
+    bookingNumber: booking.bookingNumber,
+    type: booking.type as "passenger" | "parcel",
+    tripType: (booking.tripType as "one-way" | "round-trip" | undefined) ?? undefined,
+    firstName: booking.firstName,
+    lastName: booking.lastName,
+    email: booking.email,
+    phone: booking.phone,
+    departureCity: booking.departureCity,
+    arrivalCity: booking.arrivalCity,
+    departureDate: booking.departureDate,
+    returnDate: booking.returnDate,
+    adults: booking.adults,
+    children: booking.children,
+    parcelDetails: booking.parcelDetails,
+    price: booking.price,
+    currency: booking.currency,
+    ticketUrl: booking.ticketUrl || "",
+    payMethod: booking.payMethod,
+    busLabel: bus?.label ?? null,
+    busPlate: bus?.plate ?? null,
+    confirmUrl: urls.confirmUrl,
+    cancelUrl: urls.cancelUrl,
+    trackUrl: urls.trackUrl,
+  });
+  return { sent: result.success };
+}
+
 /**
  * Variantă a enqueueForBooking care sare peste `confirmation` — folosită când
  * flow-ul public trimite confirmation-ul inline, deci vrem doar reminderele.
@@ -243,13 +292,8 @@ async function sendJob(job: EmailJob & { booking: Booking }) {
   const urls = await buildResponseUrls(booking.bookingNumber);
 
   if (type === "confirmation") {
-    // Bus + plate de pe cursa dus, ca să apară în email (rândul "Autocar").
-    const bus = booking.tripId
-      ? await prisma.trip.findUnique({
-          where: { id: booking.tripId },
-          select: { bus: { select: { label: true, plate: true } } },
-        })
-      : null;
+    // Autocar (rândul „Autocar" din email): manualBusId are prioritate față de cursă.
+    const bus = await coachOf(booking);
     const result = await sendBookingConfirmation({
       bookingNumber: booking.bookingNumber,
       type: booking.type as "passenger" | "parcel",
@@ -269,8 +313,8 @@ async function sendJob(job: EmailJob & { booking: Booking }) {
       currency: booking.currency,
       ticketUrl: booking.ticketUrl || "",
       payMethod: booking.payMethod,
-      busLabel: bus?.bus.label ?? null,
-      busPlate: bus?.bus.plate ?? null,
+      busLabel: bus?.label ?? null,
+      busPlate: bus?.plate ?? null,
       confirmUrl: urls.confirmUrl,
       cancelUrl: urls.cancelUrl,
       trackUrl: urls.trackUrl,

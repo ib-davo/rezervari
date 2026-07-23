@@ -662,6 +662,7 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload }: {
 // dedus din rută). Ex: rută pusă greșit pe ZNQ 874 → mutată pe DAW 777.
 function MoveBus({ g, buses, onDone }: { g: TripGroup; buses: BusOption[]; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [notify, setNotify] = useState(true); // bifă: anunță pasagerii pe email (ca pe admin)
   const move = async (raw: string) => {
     if (!raw || busy) return;
     const busId = raw === "__auto__" ? null : raw;
@@ -670,31 +671,48 @@ function MoveBus({ g, buses, onDone }: { g: TripGroup; buses: BusOption[]; onDon
       const res = await fetch("/api/operator/trips/move-bus", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: g.key, busId }),
+        body: JSON.stringify({ key: g.key, busId, notify }),
       });
       const d = await res.json();
-      if (d.success) onDone();
-      else alert(d.error || "Nu s-a putut muta autocarul");
+      if (d.success) {
+        alert(notify
+          ? `Mutat pe alt autocar · ${d.emailed || 0} email${d.emailed === 1 ? "" : "uri"} trimis${d.emailed === 1 ? "" : "e"} pasagerilor`
+          : "Mutat pe alt autocar (fără emailuri)");
+        onDone();
+      } else alert(d.error || "Nu s-a putut muta autocarul");
     } catch {
       alert("Eroare la mutarea autocarului");
     }
     setBusy(false);
   };
   return (
-    <select
-      disabled={busy}
-      value=""
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => { const v = e.target.value; e.currentTarget.value = ""; move(v); }}
-      title="Mută TOATE rezervările acestei curse pe alt autocar"
-      className="inline-flex cursor-pointer items-center rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)]"
-    >
-      <option value="">⇄ Mută pe autocar…</option>
-      {buses.filter((b) => b.id !== g.busId).map((b) => (
-        <option key={b.id} value={b.id}>{b.label}{b.plate ? ` · ${b.plate}` : ""}</option>
-      ))}
-      <option value="__auto__">↩︎ Revenire automată (după rută)</option>
-    </select>
+    <span className="inline-flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      <label
+        title="Trimite pasagerilor emailul de confirmare cu autocarul nou (ca la atribuirea din admin)"
+        className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-semibold text-[color:var(--ink-500)]"
+      >
+        <input
+          type="checkbox"
+          checked={notify}
+          onChange={(e) => setNotify(e.target.checked)}
+          className="h-3.5 w-3.5 accent-[color:var(--red-500)]"
+        />
+        anunță pasagerii
+      </label>
+      <select
+        disabled={busy}
+        value=""
+        onChange={(e) => { const v = e.target.value; e.currentTarget.value = ""; move(v); }}
+        title="Mută TOATE rezervările acestei curse pe alt autocar"
+        className="inline-flex cursor-pointer items-center rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)]"
+      >
+        <option value="">⇄ Mută pe autocar…</option>
+        {buses.filter((b) => b.id !== g.busId).map((b) => (
+          <option key={b.id} value={b.id}>{b.label}{b.plate ? ` · ${b.plate}` : ""}</option>
+        ))}
+        <option value="__auto__">↩︎ Revenire automată (după rută)</option>
+      </select>
+    </span>
   );
 }
 

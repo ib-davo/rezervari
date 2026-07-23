@@ -138,6 +138,11 @@ type Group = TripGroupData & {
   // direcției la prefill-ul „+ Rezervare pe cursă".
   _originCountriesStrict: Set<string>;
   _destCountriesStrict: Set<string>;
+  // Câte rezervări pe fiecare sens — direcția cardului = sensul DOMINANT. Astfel o
+  // rezervare băgată greșit pe sens invers (ex. un retur pe o zi de dus) nu mai
+  // inversează/poluează textul rutei.
+  _dirOut: number;
+  _dirIn: number;
   _memberTrips: Set<string>;
 };
 
@@ -308,6 +313,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
         _destCountries: new Set(),
         _originCountriesStrict: new Set(),
         _destCountriesStrict: new Set(),
+        _dirOut: 0,
+        _dirIn: 0,
         _memberTrips: new Set(),
       };
       groups.set(key, g);
@@ -324,6 +331,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     // prefill-ul „+ Rezervare pe cursă" — o adresă liberă nu e o țară.
     if (oCountry) g._originCountriesStrict.add(oCountry);
     if (dCountry) g._destCountriesStrict.add(dCountry);
+    if (direction === "out") g._dirOut++;
+    else if (direction === "in") g._dirIn++;
     if (trip) g._memberTrips.add(trip.id);
     if (departureIso < g.departureAt) g.departureAt = departureIso;
     if (!g.capacity && (bus?.totalSeats || trip?.capacity)) g.capacity = bus?.totalSeats ?? trip?.capacity ?? null;
@@ -361,8 +370,16 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       // liberă („56593 Horhausen") nu mai strică detecția inbound/outbound.
       const originCountriesArr = [...g._originCountriesStrict];
       const destCountriesArr = [...g._destCountriesStrict];
-      const inboundRun = destCountriesArr.length > 0 && destCountriesArr.every((c) => isMD(c));
-      const outboundRun = originCountriesArr.length > 0 && originCountriesArr.every((c) => isMD(c));
+      // Sensul cardului = sensul DOMINANT al rezervărilor. Astfel o rezervare pe sens
+      // greșit (ex. un retur băgat pe o zi de dus) NU mai inversează/poluează textul
+      // rutei. Când nu-s rezervări clare pe sens (doar adrese libere) → seturi stricte.
+      const hasDir = g._dirOut > 0 || g._dirIn > 0;
+      const outboundRun = hasDir
+        ? (g._dirOut > 0 && g._dirOut >= g._dirIn)
+        : (originCountriesArr.length > 0 && originCountriesArr.every((c) => isMD(c)));
+      const inboundRun = hasDir
+        ? (g._dirIn > g._dirOut)
+        : (destCountriesArr.length > 0 && destCountriesArr.every((c) => isMD(c)));
       // Țările REAL deservite de autobuz în ziua aia (regula recurentă) — nu doar
       // cele din rezervările existente. Altfel, DAW 777 pe 12 iul (Belgia/Olanda/
       // Germania) cu rezervări doar din Belgia+Germania ar bloca Olanda la „+".
@@ -418,8 +435,8 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
               }),
       };
 
-      const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _originCountriesStrict, _destCountriesStrict, _memberTrips, ...pub } = g;
-      void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _originCountriesStrict; void _destCountriesStrict; void _memberTrips;
+      const { _origins, _dests, _originsFull, _destsFull, _originCountries, _destCountries, _originCountriesStrict, _destCountriesStrict, _dirOut, _dirIn, _memberTrips, ...pub } = g;
+      void _origins; void _dests; void _originsFull; void _destsFull; void _originCountries; void _destCountries; void _originCountriesStrict; void _destCountriesStrict; void _dirOut; void _dirIn; void _memberTrips;
       return pub;
     });
 

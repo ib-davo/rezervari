@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyOperatorSupervisor, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { prisma } from "@/lib/prisma";
 import { buildTripGroups } from "@/lib/tripGrouping";
+import { sendConfirmationNow } from "@/lib/emailQueue";
 
 export const dynamic = "force-dynamic";
 
@@ -57,5 +58,15 @@ export async function POST(req: NextRequest) {
   if (ids.size === 0) return NextResponse.json({ success: false, error: "Cursa n-are rezervări de mutat" }, { status: 400 });
 
   await prisma.booking.updateMany({ where: { id: { in: [...ids] } }, data: { manualBusId: busId } });
-  return NextResponse.json({ success: true, moved: ids.size });
+
+  // Anunță pasagerii cu confirmarea actualizată (autocarul nou) — fix ca la
+  // atribuirea din davo.md/admin. DOAR dacă bifa „anunță" e pornită (notify).
+  // Emailurile nu blochează răspunsul dacă una pică.
+  let emailed = 0;
+  if (body.notify === true) {
+    const sent = await Promise.allSettled([...ids].map((bid) => sendConfirmationNow(bid)));
+    emailed = sent.filter((r) => r.status === "fulfilled" && r.value.sent).length;
+  }
+
+  return NextResponse.json({ success: true, moved: ids.size, emailed });
 }
