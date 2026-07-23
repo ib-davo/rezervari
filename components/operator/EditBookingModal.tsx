@@ -33,6 +33,12 @@ export function EditBookingModal({
   const [depCity, setDepCity] = useState(b.departureCity);
   const [arrCity, setArrCity] = useState(b.arrivalCity);
   const [price, setPrice] = useState(String(b.price));
+  const [currency, setCurrency] = useState(b.currency);
+  const [phone, setPhone] = useState(b.phone);
+  const [email, setEmail] = useState(b.email);
+  const [depDate, setDepDate] = useState(b.departureDate.slice(0, 10));
+  const [retDate, setRetDate] = useState(b.returnDate ? b.returnDate.slice(0, 10) : "");
+  const [notes, setNotes] = useState(b.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,6 +81,12 @@ export function EditBookingModal({
       departureCity: depCity.trim(),
       arrivalCity: arrCity.trim(),
       price: priceNum,
+      currency,
+      phone: phone.trim(),
+      email: email.trim(),
+      notes: notes.trim(),
+      departureDate: depDate,
+      returnDate: retDate || null,
       freeSeats: [...freed].map((k) => {
         const i = k.lastIndexOf("|");
         return { tripId: k.slice(0, i), seatNumber: Number(k.slice(i + 1)) };
@@ -221,8 +233,51 @@ export function EditBookingModal({
           </label>
         </div>
 
+        {/* Contact */}
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Telefon</span>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Email</span>
+            <input
+              value={email}
+              type="email"
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
+          </label>
+        </div>
+
+        {/* Date — se schimbă doar ziua, ora cursei rămâne */}
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Data plecării</span>
+            <input
+              type="date"
+              value={depDate}
+              onChange={(e) => setDepDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Data retur (opțional)</span>
+            <input
+              type="date"
+              value={retDate}
+              onChange={(e) => setRetDate(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            />
+          </label>
+        </div>
+
         <div className="mt-4">
-          <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Preț</span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Preț & monedă</span>
           <div className="mt-1 flex items-center gap-2">
             <input
               type="number"
@@ -232,20 +287,38 @@ export function EditBookingModal({
               onChange={(e) => setPrice(e.target.value)}
               className="w-32 rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-base font-bold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
             />
-            <span className="text-sm font-bold text-[color:var(--navy-900)]">{b.currency === "GBP" ? "£" : "€"}</span>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+              className="rounded-lg border border-[color:var(--ink-300)] bg-white px-2 py-2 text-sm font-bold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            >
+              <option value="EUR">€ EUR</option>
+              <option value="GBP">£ GBP</option>
+            </select>
             {suggested != null && suggested !== Math.round(parseFloat(price) || 0) && removedCount > 0 && (
               <button
                 type="button"
                 onClick={() => setPrice(String(suggested))}
                 className="rounded-full bg-[color:var(--navy-50)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] hover:bg-[color:var(--navy-100,#dbe4f3)]"
               >
-                Recalculează proporțional: {suggested}{b.currency === "GBP" ? "£" : "€"}
+                Recalculează proporțional: {suggested}{currency === "GBP" ? "£" : "€"}
               </button>
             )}
           </div>
           <p className="mt-1 text-[11px] text-[color:var(--ink-500)]">
             Prețul nu se schimbă automat — ajustează-l cum te-ai înțeles cu clientul.
           </p>
+        </div>
+
+        <div className="mt-4">
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Notițe</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="Observații interne (ex. loc la geam, sună înainte)…"
+            className="mt-1 w-full resize-y rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+          />
         </div>
 
         {error && <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</div>}

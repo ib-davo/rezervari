@@ -50,6 +50,32 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       upd.price = Math.round(p * 100) / 100;
     }
+    // Contact
+    if (typeof e.phone === "string") upd.phone = e.phone.trim();
+    if (typeof e.email === "string") upd.email = e.email.trim();
+    // Monedă (Anglia £ / Europa €)
+    if (e.currency === "EUR" || e.currency === "GBP") upd.currency = e.currency;
+    // Notițe (null când e gol)
+    if (typeof e.notes === "string") upd.notes = e.notes.trim() || null;
+    // Date — se schimbă DOAR ziua; ora reală a cursei se păstrează din valoarea existentă.
+    const setDay = (iso: string, base: Date): Date | null => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+      if (!m) return null;
+      return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], base.getUTCHours(), base.getUTCMinutes(), 0));
+    };
+    if (typeof e.departureDate === "string" && e.departureDate) {
+      const nd = setDay(e.departureDate, booking.departureDate);
+      if (!nd) return NextResponse.json({ success: false, error: "Dată plecare invalidă" }, { status: 400 });
+      upd.departureDate = nd;
+    }
+    if ("returnDate" in e) {
+      if (!e.returnDate) upd.returnDate = null;
+      else if (typeof e.returnDate === "string") {
+        const nd = setDay(e.returnDate, booking.returnDate ?? booking.departureDate);
+        if (!nd) return NextResponse.json({ success: false, error: "Dată retur invalidă" }, { status: 400 });
+        upd.returnDate = nd;
+      }
+    }
 
     // Locurile de eliberat trebuie să aparțină acestei rezervări.
     const freeSeats = Array.isArray(e.freeSeats) ? e.freeSeats : [];
