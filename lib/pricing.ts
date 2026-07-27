@@ -8,6 +8,8 @@ export interface PriceInput {
   adults?: number;
   children?: number;
   parcelWeight?: number | null;
+  // Colet cu ridicare de la ADRESA expeditorului (nu predare la sediu) → minim 30.
+  pickupFromAddress?: boolean;
 }
 
 export interface PriceResult {
@@ -57,11 +59,19 @@ const CHILD_DISCOUNT = 0.5;
 // Tarif colete: 1.5/kg în valuta rutei (EUR, sau GBP pe Anglia). Aceeași formulă
 // ca în UI (BookingForm) — prețul afișat clientului trebuie să fie cel salvat.
 const PARCEL_PER_KG = 1.5;
+// Colet cu ridicare de la adresa expeditorului: minim 30 (în valuta rutei).
+const PARCEL_PICKUP_MIN = 30;
 
-export function calculateParcelPrice(weight: number | null | undefined, currency: string): PriceResult {
+export function calculateParcelPrice(
+  weight: number | null | undefined,
+  currency: string,
+  pickupFromAddress = false,
+): PriceResult {
   // Sub 1 kg se taxează ca 1 kg — altfel round(0.3 × 1.5) = 0 → colet gratis.
   const w = weight && weight > 0 ? Math.max(1, weight) : 1;
-  return { price: Math.round(w * PARCEL_PER_KG), currency };
+  let price = Math.round(w * PARCEL_PER_KG);
+  if (pickupFromAddress) price = Math.max(price, PARCEL_PICKUP_MIN);
+  return { price, currency };
 }
 
 export function calculatePrice(input: PriceInput): PriceResult {
@@ -74,7 +84,7 @@ export function calculatePrice(input: PriceInput): PriceResult {
   const currency = foreign?.currency === "£" ? "GBP" : "EUR";
 
   if (input.type === "parcel") {
-    return calculateParcelPrice(input.parcelWeight, currency);
+    return calculateParcelPrice(input.parcelWeight, currency, input.pickupFromAddress);
   }
 
   const adults = Math.max(1, input.adults ?? 1);

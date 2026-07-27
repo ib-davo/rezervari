@@ -382,7 +382,7 @@ export function TripPicker({
                     {capitalize(weekdayFmt.format(dep))} · {dateFmt.format(dep)} · {timeFmt.format(dep)}
                   </span>
                   <span className={cn("shrink-0 text-xs font-semibold", active ? "text-white/90" : soldOut ? "text-red-600" : "text-[color:var(--ink-500)]")}>
-                    {soldOut ? "Ocupat" : `${t.pricePerSeat}${t.currency === "GBP" ? "£" : "€"} · ${t.availableSeats} libere`}
+                    {soldOut ? "Ocupat" : parcelMode ? `1.5${t.currency === "GBP" ? "£" : "€"}/kg` : `${t.pricePerSeat}${t.currency === "GBP" ? "£" : "€"} · ${t.availableSeats} libere`}
                   </span>
                 </button>
               );
@@ -485,7 +485,7 @@ export function TripPicker({
                             {timeFmt.format(new Date(trip.departureAt))}
                           </div>
                           <div className="text-[color:var(--ink-400)] hidden md:block">
-                            {trip.pricePerSeat}{trip.currency === "GBP" ? "£" : "€"}
+                            {parcelMode ? `1.5${trip.currency === "GBP" ? "£" : "€"}/kg` : `${trip.pricePerSeat}${trip.currency === "GBP" ? "£" : "€"}`}
                           </div>
                         </>
                       )}
@@ -544,10 +544,10 @@ export function TripPicker({
                   </div>
                   <div className="text-right">
                     <div className="font-[family-name:var(--font-montserrat)] text-2xl font-extrabold text-[color:var(--navy-900)]">
-                      {t.pricePerSeat}{currency}
+                      {parcelMode ? `1.5${currency}/kg` : `${t.pricePerSeat}${currency}`}
                     </div>
                     <div className="text-[11px] font-semibold text-[color:var(--ink-500)] inline-flex items-center gap-1">
-                      <Users className="h-3 w-3" /> {t.availableSeats} libere
+                      {parcelMode ? "tarif colet" : (<><Users className="h-3 w-3" /> {t.availableSeats} libere</>)}
                     </div>
                   </div>
                 </div>

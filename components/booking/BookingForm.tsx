@@ -377,7 +377,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       // taxează ca 1 kg (aceeași formulă ca serverul — afișat = taxat).
       const w = parseFloat(parcel.weight) || 0;
       const billable = w > 0 ? Math.max(1, w) : 0;
-      return Math.round(billable * 1.5);
+      let p = Math.round(billable * 1.5);
+      // Ridicare de la adresa expeditorului → minim 30 (aceeași regulă ca serverul).
+      if (sender.address.trim()) p = Math.max(p, 30);
+      return p;
     }
     const pax = Math.max(1, outboundSeats.length || 1);
     const multi = trip === "return" ? 2 : 1; // tur-retur = dus + retur integral
@@ -386,7 +389,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       seatSurcharge(outboundTripInfo?.busPlate, outboundSeats) +
       (trip === "return" ? seatSurcharge(returnTripInfo?.busPlate, returnSeats) : 0);
     return Math.round(basePrice * pax * multi + surcharge);
-  }, [mode, basePrice, outboundSeats, returnSeats, outboundTripInfo, returnTripInfo, trip, parcel.weight]);
+  }, [mode, basePrice, outboundSeats, returnSeats, outboundTripInfo, returnTripInfo, trip, parcel.weight, sender.address]);
 
   // Preț afișat doar după o selecție relevantă — altfel apărea un "100€" fals
   // (fallback-ul DEFAULT_BASE) înainte ca userul să aleagă măcar destinația.
@@ -590,6 +593,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                 .filter(Boolean)
                 .join(" | "),
               payMethod,
+              // Ridicare de la adresă (nu predare la sediu) → minim 30 pe server.
+              pickupFromAddress: !!sender.address.trim(),
               customPrice: hasCustomPrice ? customPrice : undefined,
             };
       const res = await fetch("/api/bookings", {
@@ -824,6 +829,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               }
                             />
                           )}
+                          <p className="mt-2 rounded-lg bg-[color:var(--ink-50)] px-3 py-2 text-[11px] leading-relaxed text-[color:var(--ink-500)]">
+                            Ziua afișată e <strong>plecarea autocarului</strong>. Coletul îl <strong>colectăm din zona ta înainte</strong> (vineri seara – duminică dimineața, în funcție de zonă) — operatorul te sună pentru ora exactă de ridicare.
+                          </p>
                         </div>
                       )}
                       {step === 1 && <PartyForm role="Expeditor" data={sender} onChange={setSender} embedded={embedded} />}

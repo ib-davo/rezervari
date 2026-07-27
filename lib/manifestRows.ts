@@ -33,11 +33,16 @@ function cityOnly(s: string) { return s.split(",")[0].trim(); }
  *  fiindcă o cursă poate fi mixtă (ex. DAW 777 cu Anglia + Belgia pe excepție). */
 export function currencySymbol(c: string) { return c === "GBP" ? "£" : c === "EUR" ? "€" : c; }
 
+/** Colet (normal + colet-la-cheie): nu e pasager, nu ocupă scaun. */
+export function isParcel(t: string): boolean {
+  return t === "parcel" || t === "colet_la_cheie";
+}
+
 /** Câți pasageri are rezervarea pe cursele acestui card (locuri, altfel pax). */
 export function bookingPax(b: ManifestBooking, tripIds: string[]): number {
+  if (isParcel(b.type)) return 0; // coletele nu sunt pasageri
   const seats = (b.seatBookings || []).filter((s) => tripIds.includes(s.tripId)).length;
   if (seats > 0) return seats;
-  if (b.type === "parcel") return 1;
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
 }
 
@@ -51,7 +56,7 @@ export function expandPassengers(b: ManifestBooking, seats: number[]): ManifestP
     names.push(`${firsts[i] ?? ""} ${lasts[i] ?? ""}`.replace(/\s+/g, " ").trim());
   }
   const namedCount = names.filter(Boolean).length;
-  const paxByCount = b.type === "parcel" ? 1 : Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
+  const paxByCount = isParcel(b.type) ? 1 : Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
   const rowCount = Math.max(seats.length, namedCount, paxByCount, 1);
   const perPrice = Math.round(b.price / rowCount);
   const route = `${cityOnly(b.departureCity)} → ${cityOnly(b.arrivalCity)}`;
@@ -80,7 +85,8 @@ export type ManifestGroupLike = {
 
 /** Toți pasagerii cursei (activi), un rând fiecare, sortați pe loc + totaluri. */
 export function computeManifest(g: ManifestGroupLike) {
-  const active = g.bookings.filter((b) => b.status !== "cancelled");
+  // Coletele NU apar în foaia de parcurs (nu-s pasageri) — la fel ca manifestul admin.
+  const active = g.bookings.filter((b) => b.status !== "cancelled" && !isParcel(b.type));
   const rows = active
     .flatMap((b) => {
       const seats = (b.seatBookings || []).filter((s) => g.tripIds.includes(s.tripId)).map((s) => s.seatNumber);

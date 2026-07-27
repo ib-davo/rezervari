@@ -449,7 +449,7 @@ export function rescheduleHtml(d: RescheduleData): string {
     </p>
   `;
   return layout({
-    preheader: `Rezervare modificată · noua dată ${formatDate(d.newDate)}${d.seats ? ` · loc ${d.seats}` : ""}`,
+    preheader: `Rezervare modificată · noua dată ${formatDate(d.newDate)}${d.seats ? ` · ${multi ? "locuri" : "loc"} ${d.seats}` : ""}`,
     title: "Rezervare modificată",
     eyebrow: "Modificată",
     eyebrowColor: "rgba(255,255,255,0.7)",

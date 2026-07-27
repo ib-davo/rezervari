@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { enqueueForBooking, cancelForBooking } from '@/lib/emailQueue'
+import { enqueueForBooking, cancelForBooking, sendCancellationNow } from '@/lib/emailQueue'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 
 // Whitelist explicit — admin nu poate seta id/createdAt/relații etc.
@@ -118,7 +118,9 @@ export async function PATCH(
         await autoLinkTripAndClient(id)
         await enqueueForBooking(id)
       } else if (data.status === 'cancelled') {
-        await cancelForBooking(id)
+        // Anularea pleacă IMEDIAT, nu la cron-ul zilnic.
+        await cancelForBooking(id, false)
+        await sendCancellationNow(id).catch((e) => console.error('sendCancellationNow:', e))
       }
     }
 

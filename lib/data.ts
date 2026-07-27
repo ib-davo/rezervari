@@ -150,7 +150,7 @@ export const destinations: Destination[] = [
     name: "Luxemburg",
     slug: "luxemburg",
     seoSlug: "transport-moldova-luxemburg-pentru-pasageri-si-colete",
-    price: "",
+    price: "120",
     currency: "€",
     description: "Cursă regulată Moldova - Luxemburg cu cele mai noi și confortabile autocare",
     image: "/images/luxemburg.jpg",

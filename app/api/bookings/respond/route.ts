@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyBookingToken } from "@/lib/bookingToken";
+import { sendCancellationNow } from "@/lib/emailQueue";
 
 export const dynamic = "force-dynamic";
 
@@ -173,6 +174,10 @@ export async function GET(request: NextRequest) {
     },
     data: { status: "cancelled" },
   });
+
+  // Emailul de confirmare a anulării pleacă IMEDIAT (nu la cron-ul de a doua zi).
+  // Best-effort: dacă pică, tot arătăm clientului pagina de anulare.
+  await sendCancellationNow(booking.id).catch((e) => console.error("sendCancellationNow:", e));
 
   return new Response(
     htmlPage({

@@ -150,12 +150,13 @@ export async function POST(request: NextRequest) {
       // Colet: preț pe greutate (1.5/kg), NU tarif de pasager — chiar dacă are
       // cursă atașată. Valuta vine din ruta cursei când există (GBP pe Anglia).
       const res = outboundTrip
-        ? calculateParcelPrice(Number(body.parcelWeight) || null, outboundTrip.route.currency)
+        ? calculateParcelPrice(Number(body.parcelWeight) || null, outboundTrip.route.currency, !!body.pickupFromAddress)
         : calculatePrice({
             departureCity: body.departureCity,
             arrivalCity: body.arrivalCity,
             type: 'parcel',
             parcelWeight: Number(body.parcelWeight) || null,
+            pickupFromAddress: !!body.pickupFromAddress,
           })
       price = res.price
       currency = res.currency

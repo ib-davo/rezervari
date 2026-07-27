@@ -102,8 +102,12 @@ function joinCountries(set: Set<string>, max = 3): string {
   if (arr.length <= max) return arr.join(", ");
   return `${arr.slice(0, max).join(", ")} +${arr.length - max}`;
 }
+// Coletele (colet normal + colet-la-cheie) NU ocupă scaun — se plătesc la kg.
+function isParcel(t: string): boolean {
+  return t === "parcel" || t === "colet_la_cheie";
+}
 function paxOf(b: BookingRow): number {
-  if (b.type === "parcel") return 1;
+  if (isParcel(b.type)) return 0;
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
 }
 
@@ -356,6 +360,7 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
 
       g.seatsTaken = g.bookings.reduce((sum, b) => {
         if (b.status === "cancelled") return sum;
+        if (isParcel(b.type)) return sum; // coletele nu ocupă loc pe autocar
         const seats = (b.seatBookings || []).filter((s) => g._memberTrips.has(s.tripId)).length;
         return sum + (seats > 0 ? seats : paxOf(b));
       }, 0);

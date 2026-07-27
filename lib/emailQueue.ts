@@ -129,6 +129,42 @@ export async function sendConfirmationNow(bookingId: string): Promise<{ sent: bo
 }
 
 /**
+ * Trimite emailul de ANULARE IMEDIAT (inline), la fel ca sendConfirmationNow —
+ * ca să nu mai depindă de cron-ul zilnic (clientul primea confirmarea anulării
+ * abia a doua zi). Deduplică pe un job „sent" existent și anulează orice job de
+ * anulare încă în coadă, ca cron-ul davo să nu trimită o a doua oară.
+ */
+export async function sendCancellationNow(bookingId: string): Promise<{ sent: boolean }> {
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+  if (!booking || !booking.email) return { sent: false };
+  const alreadySent = await prisma.emailJob.findFirst({
+    where: { bookingId, type: "cancellation", status: "sent" },
+  });
+  if (alreadySent) return { sent: false };
+  // Oprește orice job de anulare încă în coadă → fără dublură de la cron.
+  await prisma.emailJob.updateMany({
+    where: { bookingId, type: "cancellation", status: { in: ["scheduled", "queued"] }, sentAt: null },
+    data: { status: "cancelled" },
+  });
+  if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
+  const html = cancellationHtml(booking);
+  const { error } = await getResend().emails.send({
+    from: process.env.EMAIL_FROM || "DAVO Group <info@davo.md>",
+    to: booking.email,
+    subject: subjectForType("cancellation", booking.bookingNumber),
+    html,
+  });
+  if (error) throw new Error(error.message || "Resend returned error");
+  await prisma.emailJob.create({
+    data: { bookingId, type: "cancellation", sendAt: new Date(), status: "sent", sentAt: new Date(), attempts: 1 },
+  });
+  await prisma.emailLog.create({
+    data: { to: booking.email, subject: subjectForType("cancellation", booking.bookingNumber), template: "cancellation", status: "sent", relatedId: bookingId },
+  });
+  return { sent: true };
+}
+
+/**
  * Variantă a enqueueForBooking care sare peste `confirmation` — folosită când
  * flow-ul public trimite confirmation-ul inline, deci vrem doar reminderele.
  */

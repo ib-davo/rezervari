@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
-import { cancelForBooking, enqueueRemindersOnly } from "@/lib/emailQueue";
+import { cancelForBooking, enqueueRemindersOnly, sendCancellationNow } from "@/lib/emailQueue";
 import { seatDataForBooking } from "@/lib/operatorSeats";
 
 export const dynamic = "force-dynamic";
@@ -250,8 +250,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // altfel locurile rămân ocupate pe cursă și reminder-ele pleacă degeaba.
   if (cancelledNow) {
     await prisma.seatBooking.deleteMany({ where: { bookingId: id } });
-    // Oprește job-urile programate + pune în coadă emailul de anulare către client.
-    await cancelForBooking(id, true).catch((e) => console.error("cancelForBooking:", e));
+    // Oprește job-urile programate, apoi trimite anularea IMEDIAT (nu la cron-ul
+    // de a doua zi). cancelForBooking(id, false) doar oprește reminderele.
+    await cancelForBooking(id, false).catch((e) => console.error("cancelForBooking:", e));
+    await sendCancellationNow(id).catch((e) => console.error("sendCancellationNow:", e));
   }
 
   // Anulare din greșeală + re-confirmare imediată: retrage emailul de anulare
