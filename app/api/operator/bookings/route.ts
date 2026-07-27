@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
+import { busPlateForRun } from "@/lib/busSchedule";
+import { countryOf } from "@/lib/tripGrouping";
 
 export const dynamic = "force-dynamic";
 
@@ -78,5 +80,25 @@ export async function GET(req: NextRequest) {
     take: scope === "archived" ? 300 : 1000,
   });
 
-  return NextResponse.json({ success: true, scope, bookings });
+  // Autocarul fiecărei rezervări: override manual (manualBusId) → autocarul cursei
+  // reale (tripId → Trip.bus) → altfel din program (busPlateForRun pe dată + țări).
+  // Ca arhiva să poată fi grupată/filtrată pe autocar, nu doar pasageri împrăștiați.
+  const manualIds = [...new Set(bookings.map((b) => b.manualBusId).filter((x): x is string => !!x))];
+  const tripIds = [...new Set(bookings.map((b) => b.tripId).filter((x): x is string => !!x))];
+  const [manualBuses, trips] = await Promise.all([
+    manualIds.length ? prisma.bus.findMany({ where: { id: { in: manualIds } }, select: { id: true, plate: true } }) : Promise.resolve([]),
+    tripIds.length ? prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, bus: { select: { plate: true } } } }) : Promise.resolve([]),
+  ]);
+  const plateById = new Map<string, string>(manualBuses.map((b) => [b.id, b.plate]));
+  const plateByTrip = new Map<string, string>(trips.filter((t) => t.bus).map((t) => [t.id, t.bus!.plate]));
+  const withCoach = bookings.map((b) => ({
+    ...b,
+    coach:
+      (b.manualBusId && plateById.get(b.manualBusId)) ||
+      (b.tripId && plateByTrip.get(b.tripId)) ||
+      busPlateForRun(new Date(b.departureDate), countryOf(b.departureCity), countryOf(b.arrivalCity)) ||
+      null,
+  }));
+
+  return NextResponse.json({ success: true, scope, bookings: withCoach });
 }

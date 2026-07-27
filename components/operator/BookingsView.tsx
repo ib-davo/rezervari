@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
-  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil,
+  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus,
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { displayPassengerNames } from "@/lib/passengerNames";
@@ -44,6 +44,7 @@ export type OperatorBooking = {
   boardedBy: string | null;
   baggageSurplus: string | null;
   seatBookings: { seatNumber: number; tripId: string }[];
+  coach: string | null;
 };
 
 const fmtDate = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "short" });
@@ -82,6 +83,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   const [error, setError] = useState(false);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<QuickFilter>("all");
+  const [coachFilter, setCoachFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,11 +170,18 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     parcel: bookings.filter((b) => b.type === "parcel").length,
   }), [bookings, todayKey]);
 
+  // Autocarele prezente în set — pentru dropdown-ul de filtrare pe autocar.
+  const coaches = useMemo(
+    () => [...new Set(bookings.map((b) => b.coach).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [bookings],
+  );
+
   const filtered = useMemo(() => bookings.filter((b) => {
     if (filter === "today" && dayKey(b.departureDate) !== todayKey) return false;
     if (filter === "pending" && b.status !== "pending") return false;
     if (filter === "unpaid" && (b.paymentStatus === "paid" || b.status === "cancelled")) return false;
     if (filter === "parcel" && b.type !== "parcel") return false;
+    if (coachFilter !== "all" && (b.coach || "") !== coachFilter) return false;
     if (!q.trim()) return true;
     const s = q.toLowerCase();
     return (
@@ -183,19 +192,25 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       b.arrivalCity.toLowerCase().includes(s) ||
       (b.createdByName || "").toLowerCase().includes(s)
     );
-  }), [bookings, filter, q, todayKey]);
+  }), [bookings, filter, q, coachFilter, todayKey]);
 
-  // Grupare pe ziua plecării — operatorii gândesc în curse, nu în listă plată.
+  // Grupare pe ZIUĂ → AUTOCAR: operatorii gândesc în curse, nu în listă plată de
+  // pasageri împrăștiați. În arhivă poți astfel vedea/selecta un autocar pe o zi.
   const groups = useMemo(() => {
-    const map = new Map<string, OperatorBooking[]>();
+    const byDay = new Map<string, Map<string, OperatorBooking[]>>();
     for (const b of filtered) {
-      const key = dayKey(b.departureDate);
-      const arr = map.get(key);
+      const day = dayKey(b.departureDate);
+      const coach = b.coach || "Fără autocar";
+      let byCoach = byDay.get(day);
+      if (!byCoach) { byCoach = new Map(); byDay.set(day, byCoach); }
+      const arr = byCoach.get(coach);
       if (arr) arr.push(b);
-      else map.set(key, [b]);
+      else byCoach.set(coach, [b]);
     }
     // API-ul vine sortat (asc pe active, desc pe arhivă) — Map păstrează ordinea.
-    return Array.from(map.entries());
+    return Array.from(byDay.entries()).map(
+      ([day, byCoach]) => [day, Array.from(byCoach.entries())] as const,
+    );
   }, [filtered]);
 
   const chips: Array<{ key: QuickFilter; label: string; count: number; tone?: "warn" | "danger" }> = scope === "active"
@@ -296,6 +311,24 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
             })}
           </div>
         )}
+
+        {/* Filtru pe AUTOCAR — vezi/selectează un autocar pe o zi, nu pasageri
+            împrăștiați. Apare când sunt mai multe autocare în set. */}
+        {!loading && !error && coaches.length > 1 && (
+          <div className="flex items-center gap-1.5">
+            <Bus className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+            <select
+              value={coachFilter}
+              onChange={(e) => setCoachFilter(e.target.value)}
+              className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+            >
+              <option value="all">Toate autocarele</option>
+              {coaches.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -316,13 +349,13 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         <div className="rounded-2xl border border-dashed border-[color:var(--ink-200)] px-4 py-14 text-center">
           <CalendarDays className="mx-auto h-8 w-8 text-[color:var(--ink-300)]" />
           <p className="mt-3 text-sm font-semibold text-[color:var(--navy-900)]">
-            {q.trim() || filter !== "all"
+            {q.trim() || filter !== "all" || coachFilter !== "all"
               ? "Nimic nu se potrivește cu filtrarea."
               : scope === "active" ? "Nicio rezervare activă." : "Arhiva e goală."}
           </p>
-          {(q.trim() || filter !== "all") && (
+          {(q.trim() || filter !== "all" || coachFilter !== "all") && (
             <button
-              onClick={() => { setQ(""); setFilter("all"); }}
+              onClick={() => { setQ(""); setFilter("all"); setCoachFilter("all"); }}
               className="mt-3 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
             >
               Resetează filtrele
@@ -331,25 +364,39 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         </div>
       ) : (
         <div className="space-y-5">
-          {groups.map(([key, items]) => (
-            <section key={key}>
-              <div className="mb-2 flex items-baseline gap-2">
-                <h2 className={`text-[13px] font-extrabold uppercase tracking-wide ${
-                  key === todayKey ? "text-[color:var(--red-500)]" : "text-[color:var(--navy-900)]"
-                }`}>
-                  {dayLabel(key)}
-                </h2>
-                <span className="text-[11px] font-semibold text-[color:var(--ink-400)]">
-                  {items.length} {items.length === 1 ? "rezervare" : "rezervări"}
-                </span>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {items.map((b) => (
-                  <BookingCard key={b.id} b={b} scope={scope} onAct={act} onReload={load} />
-                ))}
-              </div>
-            </section>
-          ))}
+          {groups.map(([key, coachGroups]) => {
+            const dayTotal = coachGroups.reduce((s, [, items]) => s + items.length, 0);
+            return (
+              <section key={key}>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h2 className={`text-[13px] font-extrabold uppercase tracking-wide ${
+                    key === todayKey ? "text-[color:var(--red-500)]" : "text-[color:var(--navy-900)]"
+                  }`}>
+                    {dayLabel(key)}
+                  </h2>
+                  <span className="text-[11px] font-semibold text-[color:var(--ink-400)]">
+                    {dayTotal} {dayTotal === 1 ? "rezervare" : "rezervări"}
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {coachGroups.map(([coach, items]) => (
+                    <div key={coach}>
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <Bus className="h-3.5 w-3.5 text-[color:var(--red-500)]" />
+                        <span className="text-[12px] font-bold text-[color:var(--navy-900)]">{coach}</span>
+                        <span className="text-[11px] font-semibold text-[color:var(--ink-400)]">· {items.length}</span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                        {items.map((b) => (
+                          <BookingCard key={b.id} b={b} scope={scope} onAct={act} onReload={load} />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
     </div>

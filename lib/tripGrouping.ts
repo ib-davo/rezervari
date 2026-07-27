@@ -83,7 +83,7 @@ function prevDayKey(dk: string): string {
 function isMD(country?: string | null): boolean {
   return /moldova/i.test(country ?? "");
 }
-function countryOf(cityStr: string): string {
+export function countryOf(cityStr: string): string {
   const parts = cityStr.split(",");
   return parts.length > 1 ? parts[parts.length - 1].trim() : "";
 }
