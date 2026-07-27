@@ -226,7 +226,8 @@ export async function GET(req: NextRequest) {
     // lângă vineri cu ZNQ 874). Le materializăm lazy și le includem în rezultat.
     const extraDates: Date[] = [];
     if (originIsMd && !date) {
-      for (const ex of extraOutboundDays(foreignCountry.name)) {
+      // Orașul destinație contează: joi (DAW 077) trece prin Belgia doar la Bruxelles.
+      for (const ex of extraOutboundDays(foreignCountry.name, route.destinationCity.name)) {
         const exDates = nextDepartures(ex.weekday, ex.time, HORIZON_WEEKS, dateRange.gte);
         if (exDates.length === 0) continue;
         extraDates.push(...exDates);

@@ -694,7 +694,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               allowedWeekdays={
                                 matchedCountry
                                   ? direction === "md-to-eu"
-                                    ? getOutboundWeekdays(matchedCountry.slug)
+                                    ? getOutboundWeekdays(matchedCountry.slug, toCityName)
                                     : getReturnWeekdays(matchedCountry.slug)
                                   : null
                               }
@@ -730,7 +730,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                             matchedCountry
                               ? direction === "md-to-eu"
                                 ? getReturnWeekdays(matchedCountry.slug)
-                                : getOutboundWeekdays(matchedCountry.slug)
+                                : getOutboundWeekdays(matchedCountry.slug, fromCityName)
                               : null
                           }
                         />
@@ -823,7 +823,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               allowedWeekdays={
                                 matchedCountry
                                   ? direction === "md-to-eu"
-                                    ? getOutboundWeekdays(matchedCountry.slug)
+                                    ? getOutboundWeekdays(matchedCountry.slug, toCityName)
                                     : getReturnWeekdays(matchedCountry.slug)
                                   : null
                               }

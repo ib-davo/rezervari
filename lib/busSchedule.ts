@@ -50,10 +50,19 @@ export function busPlateForCountry(country: string): string | null {
 }
 
 // Zile SUPLIMENTARE de plecare (dus), peste programul Country. Belgia mai pleacă
-// și joi cu DAW 077 (pe lângă vineri cu ZNQ 874).
-export function extraOutboundDays(country: string): Array<{ weekday: number; time: string; durationHours: number; plate: string }> {
+// și joi cu DAW 077 (pe lângă vineri cu ZNQ 874) — DAR joi (autocarul de Anglia)
+// trece prin Belgia DOAR pentru BRUXELLES. Celelalte orașe Belgia pleacă numai
+// vineri (ZNQ 874). `city` optional: fără oraș = nivel de țară (calendarul
+// panoului) → păstrăm joi; cu oraș non-Bruxelles → fără joi.
+function isBruxelles(city?: string | null): boolean {
+  return /bruxelles|brussel/i.test((city || "").trim());
+}
+export function extraOutboundDays(country: string, city?: string | null): Array<{ weekday: number; time: string; durationHours: number; plate: string }> {
   const c = (country || "").trim().toLowerCase();
-  if (c === "belgia") return [{ weekday: 4, time: "07:00", durationHours: 28, plate: "DAW 077" }];
+  if (c === "belgia") {
+    if (city != null && (city || "").trim() !== "" && !isBruxelles(city)) return [];
+    return [{ weekday: 4, time: "07:00", durationHours: 28, plate: "DAW 077" }];
+  }
   return [];
 }
 

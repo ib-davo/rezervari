@@ -129,10 +129,16 @@ export function getReturnWeekday(slug: string): number | null {
  * ZNQ 874. Filtrul cu o singură zi ascundea cursele de joi din calendar deși
  * existau în DB.
  */
-export function getOutboundWeekdays(slug: string): number[] {
+export function getOutboundWeekdays(slug: string, city?: string | null): number[] {
   const base = getOutboundWeekday(slug);
   const days = base == null ? [] : [base];
-  if (slug === "belgia") days.push(4); // joi · DAW 077 (extraOutboundDays)
+  // Joi (DAW 077, autocarul de Anglia) trece prin Belgia DOAR pentru Bruxelles.
+  // Celelalte orașe Belgia pleacă numai vineri (ZNQ 874). Fără oraș → permisiv
+  // (backendul decide oricum ce curse există).
+  if (slug === "belgia") {
+    const restrict = !!(city || "").trim() && !/bruxelles|brussel/i.test((city || "").trim());
+    if (!restrict) days.push(4);
+  }
   return [...new Set(days)];
 }
 
