@@ -24,6 +24,9 @@ export default function OperatoriPage() {
   const [meId, setMeId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
+  // Permisiunea „operatori" dă doar vizibilitate; modificările rămân ale
+  // supervizorului. Default `true` ca un răspuns fără câmp să nu ascundă nimic.
+  const [canWrite, setCanWrite] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   // adăugare
@@ -39,7 +42,7 @@ export default function OperatoriPage() {
       const res = await fetch("/api/operator/admin/operators", { cache: "no-store" });
       if (res.status === 403) { setForbidden(true); return; }
       const d = await res.json();
-      if (d?.success) { setOps(d.operators); setMeId(d.meId); }
+      if (d?.success) { setOps(d.operators); setMeId(d.meId); setCanWrite(d.canWrite !== false); }
     } finally {
       setLoading(false);
     }
@@ -67,7 +70,7 @@ export default function OperatoriPage() {
     return (
       <div className="rounded-2xl border border-[color:var(--ink-200)] bg-white px-4 py-14 text-center">
         <ShieldCheck className="mx-auto h-8 w-8 text-[color:var(--ink-300)]" />
-        <p className="mt-3 text-sm font-semibold text-[color:var(--navy-900)]">Doar supervizorul poate gestiona operatorii.</p>
+        <p className="mt-3 text-sm font-semibold text-[color:var(--navy-900)]">Nu ai acces la gestiunea operatorilor.</p>
         <button onClick={() => router.replace("/panou")} className="mt-3 text-xs font-semibold text-[color:var(--red-500)] hover:underline">Înapoi</button>
       </div>
     );
@@ -81,7 +84,8 @@ export default function OperatoriPage() {
         <span className="rounded-full bg-[color:var(--navy-50)] px-2 py-0.5 text-xs font-bold text-[color:var(--navy-900)]">{ops.length}</span>
       </div>
 
-      {/* Adaugă operator */}
+      {/* Adaugă operator — doar supervizorul poate scrie */}
+      {canWrite && (
       <div className="mb-4 rounded-2xl border border-[color:var(--ink-200)] bg-white p-3 sm:p-4">
         <div className="mb-2 text-sm font-bold text-[color:var(--navy-900)]">Adaugă operator</div>
         <div className="flex flex-wrap items-end gap-2">
@@ -110,6 +114,7 @@ export default function OperatoriPage() {
         </div>
         {err && <div className="mt-2 flex items-center gap-1 text-xs font-semibold text-red-600"><AlertTriangle className="h-3.5 w-3.5" /> {err}</div>}
       </div>
+      )}
 
       {/* Lista */}
       {loading ? (
@@ -117,7 +122,7 @@ export default function OperatoriPage() {
       ) : (
         <div className="space-y-2">
           {ops.map((op) => (
-            <OperatorRow key={op.id} op={op} isMe={op.id === meId} editing={editId === op.id}
+            <OperatorRow key={op.id} op={op} isMe={op.id === meId} canWrite={canWrite} editing={editId === op.id}
               onEdit={() => setEditId(op.id)} onClose={() => setEditId(null)} onChanged={load} />
           ))}
         </div>
@@ -126,8 +131,8 @@ export default function OperatoriPage() {
   );
 }
 
-function OperatorRow({ op, isMe, editing, onEdit, onClose, onChanged }: {
-  op: Operator; isMe: boolean; editing: boolean; onEdit: () => void; onClose: () => void; onChanged: () => void;
+function OperatorRow({ op, isMe, canWrite, editing, onEdit, onClose, onChanged }: {
+  op: Operator; isMe: boolean; canWrite: boolean; editing: boolean; onEdit: () => void; onClose: () => void; onChanged: () => void;
 }) {
   const [name, setName] = useState(op.name);
   const [pin, setPin] = useState("");
@@ -180,7 +185,7 @@ function OperatorRow({ op, isMe, editing, onEdit, onClose, onChanged }: {
             {op.lastLogin ? ` · ultima intrare ${dtFmt.format(new Date(op.lastLogin))}` : " · niciodată logat"}
           </div>
         </div>
-        {!editing && (
+        {!editing && canWrite && (
           <div className="flex shrink-0 items-center gap-1">
             <button onClick={onEdit} title="Editează" className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[color:var(--ink-200)] text-[color:var(--navy-900)] active:scale-95 transition-transform">
               <Pencil className="h-3.5 w-3.5" />

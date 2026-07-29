@@ -4,6 +4,11 @@
 
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  effectiveOperatorPermissions,
+  normalizeOperatorRole,
+  type OperatorRole,
+} from "@/lib/operatorPermissions";
 
 export const OPERATOR_COOKIE = "davo_operator";
 const WEEK_MS = 7 * 24 * 3600 * 1000;
@@ -83,6 +88,73 @@ export async function verifyOperatorToken(token: string | undefined): Promise<Op
   } catch {
     return null;
   }
+}
+
+export type OperatorAccess = {
+  role: string;
+  active: boolean;
+  permissions: string[]; // brut, așa cum e în DB: lista goală = presetul rolului
+};
+
+/**
+ * Coloana `Operator.permissions` ajunge în baza de producție abia când se
+ * aplică migrarea creată în repo-ul davo (baza e partajată, migrarea se rulează
+ * o singură dată, de acolo). Până atunci Prisma întoarce P2022 la orice citire
+ * a ei.
+ */
+export function isMissingPermissionsColumn(error: unknown): boolean {
+  const e = error as { code?: string; message?: string } | null;
+  return e?.code === "P2022" && (e.message ?? "").includes("permissions");
+}
+
+/** Mesaj comun pentru cazul de mai sus, când operația chiar cerea permisiuni. */
+export const PERMISSIONS_UNAVAILABLE =
+  "Permisiunile nu pot fi salvate încă: coloana lipsește din baza de date (migrarea se aplică o singură dată, din repo-ul davo).";
+
+/**
+ * Rolul, starea și permisiunile operatorului — se citesc din DB fiindcă tokenul
+ * conține doar {id,slug,name}. Dacă lipsește coloana `permissions`, cade pe
+ * lista goală, adică pe presetul rolului: exact comportamentul de dinainte de
+ * permisiuni, nu o eroare care ar bloca tot panoul.
+ */
+export async function loadOperatorAccess(id: string): Promise<OperatorAccess | null> {
+  try {
+    const op = await prisma.operator.findUnique({
+      where: { id },
+      select: { role: true, active: true, permissions: true },
+    });
+    return op ? { role: op.role, active: op.active, permissions: op.permissions ?? [] } : null;
+  } catch (error) {
+    if (!isMissingPermissionsColumn(error)) throw error;
+    const op = await prisma.operator.findUnique({
+      where: { id },
+      select: { role: true, active: true },
+    });
+    return op ? { role: op.role, active: op.active, permissions: [] } : null;
+  }
+}
+
+export type OperatorRights = OperatorSession & { role: OperatorRole; permissions: string[] };
+
+/**
+ * Sesiune validă + cont activ + permisiunea cerută (efectivă: lista proprie
+ * dacă e ne-goală, altfel presetul rolului).
+ *
+ * Rolul rămâne în rezultat fiindcă permisiunea dă doar acces la secțiune —
+ * operațiile de scriere din gestiunea operatorilor cer în plus supervizor.
+ */
+export async function verifyOperatorSection(
+  token: string | undefined,
+  section: string,
+): Promise<OperatorRights | null> {
+  const session = await verifyOperatorToken(token);
+  if (!session) return null;
+  const access = await loadOperatorAccess(session.id);
+  if (!access || !access.active) return null;
+  const role = normalizeOperatorRole(access.role);
+  const permissions = effectiveOperatorPermissions(role, access.permissions);
+  if (!permissions.includes(section)) return null;
+  return { ...session, role, permissions };
 }
 
 // Verifică sesiunea ȘI că operatorul e supervisor ACTIV (rolul se citește din DB,

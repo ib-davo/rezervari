@@ -256,6 +256,10 @@ model Operator {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  // Chei de secțiuni din panoul operatorilor. Lista goală înseamnă „folosește
+  // presetul rolului", ca operatorii existenți să rămână exact cum sunt azi.
+  permissions String[] @default([])
+
   bookings  Booking[]
 }
 
@@ -308,6 +312,32 @@ model AdminUser {
   lastLogin DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  // Dezactivare fără ștergere: rezervările și jurnalul rămân legate de contul
+  // vechi, dar autentificarea e refuzată.
+  active      Boolean  @default(true)
+  // Chei de secțiuni din catalogul lib/permissions.ts al repo-ului davo. Lista
+  // goală înseamnă „folosește presetul rolului" — de asta conturile existente
+  // nu se schimbă.
+  permissions String[] @default([])
+}
+
+// Jurnal de audit pentru panoul „Conturi & Acces" (trăiește în repo-ul davo):
+// cine, ce a schimbat și unde. Oglindit aici fiindcă cele două repo-uri împart
+// aceeași bază — fără el, un `prisma db push` rulat din panoul operatorilor ar
+// șterge tabela și coloanele noi.
+model AccountAudit {
+  id         String   @id @default(uuid())
+  actorEmail String
+  action     String   // create | update | delete | password | permissions | activate | deactivate | gate_pin | unlock_fail
+  system     String   // davo | rezervari | colete | gate
+  targetId   String?
+  targetName String
+  details    String?  // JSON scurt, FĂRĂ parole sau PIN-uri
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Settings {
