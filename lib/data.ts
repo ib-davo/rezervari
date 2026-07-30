@@ -180,6 +180,66 @@ export const moldovanCities: City[] = [
   { id: "m15", name: "Fălești", slug: "falesti" },
 ];
 
+// Orașele din Moldova (îmbarcare/coborâre) pe cursele de PASAGERI, per țară
+// destinație. Diferă după traseu: Anglia/Luxemburg (autocarul de sud) opresc doar
+// în orașele sudice; Belgia/Olanda/Germania au și nord. Coletele NU folosesc asta
+// (au collectionPoints separate). Ordinea = ordinea aproximativă a traseului.
+// `offsetMin` = minutele față de plecarea din Chișinău (după distanțe Google Maps):
+// la DUS ora orașului = ora Chișinău + offsetMin; la RETUR = ora Chișinău − offsetMin.
+export type MdStop = { name: string; offsetMin: number };
+
+const ANGLIA_STOPS: MdStop[] = [
+  { name: "Chișinău", offsetMin: 0 },
+  { name: "Ialoveni", offsetMin: 15 },
+  { name: "Hîncești", offsetMin: 40 },
+  { name: "Cimișlia", offsetMin: 70 },
+  { name: "Comrat", offsetMin: 95 },
+  { name: "Balabanu", offsetMin: 105 },
+  { name: "Kongaz", offsetMin: 110 },
+  { name: "Cahul", offsetMin: 165 },
+];
+
+// Belgia/Olanda/Germania: colectare din nord (înainte de Chișinău → offset negativ)
+// și sud (după Chișinău → offset pozitiv). Estimări — de verificat cu traseul real.
+const BELGIA_STOPS: MdStop[] = [
+  { name: "Bălți", offsetMin: -120 },
+  { name: "Fălești", offsetMin: -110 },
+  { name: "Sîngerei", offsetMin: -90 },
+  { name: "Telenești", offsetMin: -70 },
+  { name: "Orhei", offsetMin: -45 },
+  { name: "Ungheni", offsetMin: -40 },
+  { name: "Chișinău", offsetMin: 0 },
+  { name: "Ialoveni", offsetMin: 15 },
+  { name: "Hîncești", offsetMin: 40 },
+  { name: "Cimișlia", offsetMin: 70 },
+  { name: "Comrat", offsetMin: 95 },
+  { name: "Balabanu", offsetMin: 105 },
+  { name: "Kongaz", offsetMin: 110 },
+  { name: "Cahul", offsetMin: 165 },
+];
+
+export const mdPassengerStops: Record<string, MdStop[]> = {
+  anglia: ANGLIA_STOPS,
+  luxemburg: ANGLIA_STOPS,
+  belgia: BELGIA_STOPS,
+  olanda: BELGIA_STOPS,
+  germania: BELGIA_STOPS,
+};
+
+/** Orașele MD (nume) oferite pentru o țară destinație pe cursele de pasageri. */
+export function mdCitiesFor(countrySlug: string | null | undefined): string[] | null {
+  const stops = countrySlug ? mdPassengerStops[countrySlug.toLowerCase()] : null;
+  return stops ? stops.map((s) => s.name) : null;
+}
+
+/** Minutele față de Chișinău pentru un oraș MD pe ruta unei țări (0 dacă necunoscut). */
+export function mdStopOffset(countrySlug: string | null | undefined, cityName: string): number {
+  const stops = countrySlug ? mdPassengerStops[countrySlug.toLowerCase()] : null;
+  if (!stops) return 0;
+  const c = cityName.trim().toLowerCase();
+  return stops.find((s) => s.name.toLowerCase() === c)?.offsetMin ?? 0;
+}
+
 export const services: Service[] = [
   {
     id: "1",

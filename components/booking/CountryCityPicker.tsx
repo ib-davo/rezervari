@@ -49,18 +49,18 @@ type CountryOption = {
   cities: { name: string; label: string }[];
 };
 
-function useCountries(locale: Locale): CountryOption[] {
+function useCountries(locale: Locale, mdCities?: string[] | null): CountryOption[] {
+  const mdKey = mdCities ? mdCities.join("|") : "";
   return useMemo(() => {
+    // Lista de orașe MD: dacă e dată explicit (per țară destinație, pasageri), o
+    // folosim; altfel lista globală (colete / fallback). Chișinău e mereu hubul.
+    const mdNames = mdCities && mdCities.length
+      ? mdCities
+      : ["Chișinău", ...moldovanCities.map((c) => c.name)];
     const moldova: CountryOption = {
       name: "Moldova",
       label: locale === "ru" ? "Молдова" : "Moldova",
-      cities: [
-        { name: "Chișinău", label: localizeCity("Chișinău", locale) },
-        ...moldovanCities.map((c) => ({
-          name: c.name,
-          label: localizeCity(c.name, locale),
-        })),
-      ],
+      cities: mdNames.map((name) => ({ name, label: localizeCity(name, locale) })),
     };
     const foreign: CountryOption[] = destinations.map((d) => ({
       name: d.name,
@@ -71,7 +71,8 @@ function useCountries(locale: Locale): CountryOption[] {
       })),
     }));
     return [moldova, ...foreign];
-  }, [locale]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale, mdKey]);
 }
 
 // Parsează un string "Oraș, Țară" / "Țară" / "Oraș" / "" în (city, country).
@@ -122,8 +123,11 @@ export type CountryCityPickerProps = {
   hideCountries?: string[];
   // Rutele Anglia ↔ Moldova opresc DOAR la Chișinău (autocarul de Anglia nu are
   // opriri de coborâre prin raioane). Când e true, lista de orașe a Moldovei se
-  // reduce la Chișinău.
+  // reduce la Chișinău. (Fallback — de preferat `mdCities`.)
   chisinauOnly?: boolean;
+  // Lista de orașe MD oferite (per țară destinație, pasageri). Suprascrie lista
+  // globală. Ex. Anglia = doar sud; Belgia/Olanda/Germania = nord + sud.
+  mdCities?: string[] | null;
 };
 
 export function CountryCityPicker({
@@ -134,8 +138,9 @@ export function CountryCityPicker({
   cityPlaceholder,
   hideCountries,
   chisinauOnly = false,
+  mdCities,
 }: CountryCityPickerProps) {
-  const countries = useCountries(locale);
+  const countries = useCountries(locale, mdCities);
   const visible = useMemo(
     () => (hideCountries?.length ? countries.filter((c) => !hideCountries.includes(c.name)) : countries),
     [countries, hideCountries]
