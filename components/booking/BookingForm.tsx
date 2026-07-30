@@ -22,7 +22,7 @@ import {
   Info,
   Search,
 } from "lucide-react";
-import { destinations, moldovanCities, contactInfo, mdCitiesFor } from "@/lib/data";
+import { destinations, moldovanCities, contactInfo, mdCitiesFor, mdStopOffset } from "@/lib/data";
 import { seatSurcharge } from "@/lib/pricing";
 import { CountryCityPicker, complementHide, getCountryFromValue } from "@/components/booking/CountryCityPicker";
 import { useLocale } from "@/lib/i18n/client";
@@ -61,6 +61,51 @@ function formatRoDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return dateFmtRo.format(d);
+}
+
+const timeFmtRo = new Intl.DateTimeFormat("ro-RO", { hour: "2-digit", minute: "2-digit" });
+
+// Ora la un oraș MD, ajustată față de ora Chișinăului (hub-ul cursei) cu
+// offset-ul din `mdPassengerStops`. deltaMin = +offset la îmbarcare (orașul e
+// deservit DUPĂ Chișinău pe traseu = mai târziu), −offset la sosire pe retur.
+function shiftTime(iso: string, deltaMin: number): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setMinutes(d.getMinutes() + deltaMin);
+  return timeFmtRo.format(d);
+}
+
+// Notă cu ora estimată la orașul MD ales (îmbarcare la plecare / sosire la
+// coborâre). Chișinău = 0 offset → nu arătăm nimic (ora e chiar cea a cursei).
+function MdStopNote({
+  countrySlug,
+  cityName,
+  tripInfo,
+  kind,
+}: {
+  countrySlug: string | null | undefined;
+  cityName: string;
+  tripInfo: PublicTrip | null;
+  kind: "board" | "arrive";
+}) {
+  if (!countrySlug || !tripInfo || !cityName) return null;
+  const offset = mdStopOffset(countrySlug, cityName);
+  const lower = cityName.trim().toLowerCase();
+  if (offset === 0 || lower === "chișinău" || lower === "chisinau") return null;
+  const iso = kind === "board" ? tripInfo.departureAt : tripInfo.arrivalAt;
+  const time = shiftTime(iso, kind === "board" ? offset : -offset);
+  if (!time) return null;
+  const label = kind === "board" ? "Îmbarcare" : "Sosire";
+  return (
+    <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-[color:var(--navy-50)] px-3 py-2 text-[0.8rem] text-[color:var(--navy-700)]">
+      <span aria-hidden>🕒</span>
+      <span>
+        {label} <strong className="text-[color:var(--navy-900)]">{cityName}</strong>: aprox.{" "}
+        <strong className="text-[color:var(--navy-900)]">{time}</strong>
+        <span className="ml-1 text-[color:var(--ink-400)]">(ora exactă se confirmă la telefon)</span>
+      </span>
+    </div>
+  );
 }
 
 function RezervareFallback() {
@@ -706,11 +751,20 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               }
                             />
                           )}
+                          {/* Ora estimată la orașul MD ales (îmbarcare la MD→EU,
+                              coborâre la EU→MD) — ora cursei e a Chișinăului (hub). */}
+                          <MdStopNote
+                            countrySlug={matchedCountry?.slug ?? null}
+                            cityName={direction === "md-to-eu" ? fromCityName : toCityName}
+                            tripInfo={outboundTripInfo}
+                            kind={direction === "md-to-eu" ? "board" : "arrive"}
+                          />
                         </div>
                       )}
 
                       {/* Pasul 1 (round-trip): Cursa retur + scaun (filtrat după dus) */}
                       {step === 1 && trip === "return" && (
+                        <>
                         <TripPicker
                           title="Cursa retur"
                           subtitle="Alege ziua întoarcerii"
@@ -740,6 +794,15 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               : null
                           }
                         />
+                        {/* Retur MD→EU = coborâre înapoi în orașul MD de plecare;
+                            EU→MD = îmbarcare din orașul MD ales. */}
+                        <MdStopNote
+                          countrySlug={matchedCountry?.slug ?? null}
+                          cityName={direction === "md-to-eu" ? fromCityName : toCityName}
+                          tripInfo={returnTripInfo}
+                          kind={direction === "md-to-eu" ? "arrive" : "board"}
+                        />
+                        </>
                       )}
 
                       {/* Pasul Pasageri */}

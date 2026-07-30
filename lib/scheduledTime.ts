@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { mdStopOffset } from "@/lib/data";
 
 // Programul fiecărei țări (admin → "Țări") păstrează ora plecării ca string
 // literal "HH:mm" în ora Moldovei (vezi schema Country.outboundTime). Vrem ca
@@ -11,6 +12,24 @@ function extractCountry(city: string): string | null {
   if (idx < 0) return null;
   const tail = city.slice(idx + 1).trim();
   return tail.length > 0 ? tail : null;
+}
+
+function extractCity(v: string): string {
+  const idx = v.lastIndexOf(",");
+  return (idx < 0 ? v : v.slice(0, idx)).trim();
+}
+
+// Ora plecării la Chișinău (hub) e cea din program; orașele MD de pe traseu
+// (Cahul, Comrat, Bălți...) au ora decalată cu offset-ul lor. Aici aplicăm
+// offset-ul pe string-ul "HH:mm" — plecarea DIN orașul MD e mereu + offset
+// (orașul e deservit după Chișinău pe traseu, deci mai târziu; nordul are
+// offset negativ = mai devreme). Wrap peste 24h tratat pentru siguranță.
+function shiftHHmm(hhmm: string, deltaMin: number): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m || deltaMin === 0) return hhmm;
+  let total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + deltaMin;
+  total = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
 export interface ScheduledTimes {
@@ -34,19 +53,27 @@ export async function resolveScheduledTimes(booking: {
 
   const result: ScheduledTimes = {};
 
-  // Cazul 1: MD → țară străină → plecarea folosește outboundTime, retur folosește returnTime
+  // Cazul 1: MD → țară străină → plecarea folosește outboundTime, retur folosește returnTime.
+  // Plecarea e DIN orașul MD (departureCity) → aplicăm offset-ul acelui oraș.
+  // Returul pleacă din străinătate (oră EU) → fără offset MD.
   if (depCountry === "Moldova" && arrCountry && arrCountry !== "Moldova") {
     const c = await prisma.country.findUnique({ where: { name: arrCountry } });
-    if (c?.outboundTime) result.departureTime = c.outboundTime;
+    if (c?.outboundTime) {
+      result.departureTime = shiftHHmm(c.outboundTime, mdStopOffset(arrCountry, extractCity(booking.departureCity)));
+    }
     if (hasReturn && c?.returnTime) result.returnTime = c.returnTime;
     return result;
   }
 
-  // Cazul 2: țară străină → MD → plecarea folosește returnTime, retur folosește outboundTime
+  // Cazul 2: țară străină → MD → plecarea folosește returnTime, retur folosește outboundTime.
+  // Plecarea principală e din străinătate (oră EU, fără offset). Returul MD→EU
+  // pleacă DIN orașul MD (arrivalCity) → aplicăm offset-ul acelui oraș.
   if (depCountry && depCountry !== "Moldova" && arrCountry === "Moldova") {
     const c = await prisma.country.findUnique({ where: { name: depCountry } });
     if (c?.returnTime) result.departureTime = c.returnTime;
-    if (hasReturn && c?.outboundTime) result.returnTime = c.outboundTime;
+    if (hasReturn && c?.outboundTime) {
+      result.returnTime = shiftHHmm(c.outboundTime, mdStopOffset(depCountry, extractCity(booking.arrivalCity)));
+    }
     return result;
   }
 
