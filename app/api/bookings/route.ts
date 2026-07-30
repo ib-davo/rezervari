@@ -193,6 +193,29 @@ export async function POST(request: NextRequest) {
       if (Number.isFinite(cp) && cp >= 0) price = Math.round(cp)
     }
 
+    // Moștenirea autocarului MUTAT manual: dacă restul rezervărilor de pe ACELAȘI
+    // card (aceeași zi + același autocar programat) au fost mutate manual pe alt
+    // autocar (ex. duminica Belgia mutată de pe ZNQ 874 pe DAW 777), rezervarea
+    // nouă preia același autocar. Altfel ar apărea singură pe autocarul programat
+    // în timp ce restul cardului e pe DAW 777 (bug raportat: „rezerv pe DAW 777,
+    // se pune pe ZNQ"). Preluăm DOAR dacă mutarea e consistentă (un singur autocar).
+    let inheritedManualBusId: string | null = null
+    if (outboundTrip) {
+      const dep = outboundTrip.departureAt
+      const dayStart = new Date(Date.UTC(dep.getUTCFullYear(), dep.getUTCMonth(), dep.getUTCDate(), 0, 0, 0))
+      const dayEnd = new Date(Date.UTC(dep.getUTCFullYear(), dep.getUTCMonth(), dep.getUTCDate(), 23, 59, 59, 999))
+      const movedSiblings = await prisma.booking.findMany({
+        where: {
+          status: { not: 'cancelled' },
+          manualBusId: { not: null },
+          trip: { busId: outboundTrip.busId, departureAt: { gte: dayStart, lte: dayEnd } },
+        },
+        select: { manualBusId: true },
+        distinct: ['manualBusId'],
+      })
+      if (movedSiblings.length === 1) inheritedManualBusId = movedSiblings[0].manualBusId
+    }
+
     const bookingNumber = generateBookingNumber()
 
     let booking
@@ -223,6 +246,7 @@ export async function POST(request: NextRequest) {
             confirmedAt: new Date(),
             tripId: tripId || null,
             returnTripId: returnTripId || null,
+            manualBusId: inheritedManualBusId,
             source: operator ? 'operator' : 'site',
             createdById: operator?.id ?? null,
             createdByName: operator?.name ?? null,
