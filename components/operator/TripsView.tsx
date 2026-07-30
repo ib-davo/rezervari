@@ -88,6 +88,7 @@ export default function TripsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [q, setQ] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const [viewMonth, setViewMonth] = useState<Date>(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -167,6 +168,7 @@ export default function TripsView() {
       const next = { ...b };
       if (typeof patch.status === "string") next.status = patch.status;
       if (typeof patch.paymentStatus === "string") next.paymentStatus = patch.paymentStatus;
+      if (typeof patch.passengerResponse === "string") next.passengerResponse = patch.passengerResponse;
       if (patch.archive === true) next.archivedAt = new Date().toISOString();
       return next;
     };
@@ -205,21 +207,42 @@ export default function TripsView() {
   // Când se caută, ignorăm ziua selectată și arătăm toate grupurile cu potriviri.
   const searching = q.trim().length > 0;
 
+  // Opțiunile filtrului de sursă: „Client site" + fiecare operator care a creat
+  // rezervări. Se derivă din datele reale, deci apar doar sursele existente.
+  const sourceOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const g of groups) for (const b of g.bookings) {
+      if (b.source === "site") map.set("site", "Client site");
+      else if (b.createdByName) map.set(`op:${b.createdByName}`, `Operator: ${b.createdByName}`);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [groups]);
+
+  const matchSource = useCallback((b: OperatorBooking) => {
+    if (sourceFilter === "all") return true;
+    if (sourceFilter === "site") return b.source === "site";
+    if (sourceFilter.startsWith("op:")) return b.createdByName === sourceFilter.slice(3);
+    return true;
+  }, [sourceFilter]);
+
+  // Filtrul (căutare sau sursă) traversează toate zilele; altfel rămânem pe ziua aleasă.
+  const filtering = searching || sourceFilter !== "all";
+
   const visibleGroups = useMemo(() => {
     return groups
-      .map((g) => ({ ...g, bookings: g.bookings.filter(matchBooking) }))
-      // Cursele goale (fără rezervări) apar doar când NU cauți (n-au ce potrivi).
+      .map((g) => ({ ...g, bookings: g.bookings.filter((b) => matchBooking(b) && matchSource(b)) }))
+      // Cursele goale (fără rezervări) apar doar când NU filtrezi (n-au ce potrivi).
       // „Fără autocar" (busId null) apare DOAR dacă are rezervări ACTIVE de atribuit
       // — nu arătăm un card gol doar fiindcă are o rezervare anulată agățată.
       .filter((g) =>
         g.kind === "empty"
-          ? !searching
+          ? !filtering
           : g.busId === null
             ? g.bookings.some((b) => b.status !== "cancelled")
             : g.bookings.length > 0,
       )
-      .filter((g) => searching || g.dayKey === selectedDay);
-  }, [groups, matchBooking, searching, selectedDay]);
+      .filter((g) => filtering || g.dayKey === selectedDay);
+  }, [groups, matchBooking, matchSource, filtering, selectedDay]);
 
   const monthCells = useMemo(() => buildMonthGrid(viewMonth), [viewMonth]);
   const tk = todayKey();
@@ -271,6 +294,30 @@ export default function TripsView() {
           </button>
         )}
       </div>
+
+      {/* Filtru sursă: de pe site vs. operatorul care a creat rezervarea. */}
+      {sourceOptions.length > 0 && (
+        <div className="mb-3 flex items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)]">
+            <Users className="h-3.5 w-3.5 text-[color:var(--red-500)]" />
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="cursor-pointer bg-transparent pr-1 text-xs font-semibold outline-none"
+            >
+              <option value="all">Toate sursele</option>
+              {sourceOptions.map(([val, label]) => (
+                <option key={val} value={val}>{label}</option>
+              ))}
+            </select>
+          </label>
+          {sourceFilter !== "all" && (
+            <button onClick={() => setSourceFilter("all")} className="text-xs font-semibold text-[color:var(--red-500)] hover:underline">
+              Resetează
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Calendar lunar — ascuns când cauți. Lățime plafonată pe desktop ca
           celulele aspect-square să nu devină pătrate uriașe. */}
@@ -786,6 +833,31 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             {b.source === "site" && b.passengerResponse === "cancelled" && <span className="font-semibold text-red-600">· ✗ client</span>}
             {cancelled && <span className="font-semibold text-red-600">· anulată</span>}
           </div>
+          {/* Confirmare de contact setată de OPERATOR (mai ales pentru pasagerii
+              fără email): Confirmat / Nu răspunde / Anulat. Soft — NU eliberează
+              locurile (pentru asta e „Anulează"). Apare mereu în export Excel + PDF. */}
+          {!cancelled && (
+            <div className="mt-1 flex flex-wrap items-center gap-1">
+              <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Confirmare</span>
+              {([
+                ["confirmed", "Confirmat", "bg-emerald-500"],
+                ["no_answer", "Nu răspunde", "bg-amber-500"],
+                ["cancelled", "Anulat", "bg-red-500"],
+              ] as const).map(([v, label, onCls]) => {
+                const active2 = b.passengerResponse === v;
+                return (
+                  <button
+                    key={v}
+                    disabled={busy === `conf-${v}`}
+                    onClick={() => run(`conf-${v}`, { passengerResponse: v })}
+                    className={`rounded-full px-2 py-1 text-[10px] font-bold transition-colors disabled:opacity-50 ${active2 ? `${onCls} text-white` : "bg-[color:var(--ink-50)] text-[color:var(--ink-500)] hover:bg-[color:var(--ink-100)]"}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div className="shrink-0 text-right">
           <div className="text-sm font-extrabold leading-none text-[color:var(--navy-900)]">{b.price}{curr(b.currency)}</div>
