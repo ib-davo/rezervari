@@ -50,8 +50,9 @@ export function buildManifestHtml(g: TripGroup): string {
       <td class="mono">${esc(r.phone)}</td>
       <td>${esc(r.route)}</td>
       <td class="c ${r.paid ? "ok" : "due"}">${r.paid ? "Achitat" : "Neachitat"}</td>
+      <td class="c">${esc(r.confirm)}</td>
       <td class="r price">${r.price}${currencySymbol(r.currency)}</td>
-      <td class="note"></td>
+      <td class="note">${esc(r.note)}</td>
     </tr>`).join("");
 
   return `<!DOCTYPE html>
@@ -104,7 +105,7 @@ export function buildManifestHtml(g: TripGroup): string {
     <thead>
       <tr>
         <th class="c">Nr</th><th class="c">Loc</th><th>Nume și prenume</th><th>Telefon</th>
-        <th>Ruta</th><th class="c">Plată</th><th class="r">Preț</th><th>Observații</th>
+        <th>Ruta</th><th class="c">Plată</th><th class="c">Confirmare</th><th class="r">Preț</th><th>Observații</th>
       </tr>
     </thead>
     <tbody>${body || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nicio rezervare pe această cursă.</td></tr>`}</tbody>

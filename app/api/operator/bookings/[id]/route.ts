@@ -200,6 +200,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data.paymentStatus = body.paymentStatus;
     if (body.paymentStatus === "paid") data.paidAt = new Date();
   }
+  // Statut de CONFIRMARE (contact) setat de operator — mai ales pentru pasagerii
+  // fără email, pe care operatorul îi sună: confirmat / nu răspunde / anulat.
+  // Soft: NU schimbă statutul rezervării (anularea „hard" = body.status=cancelled).
+  if (typeof body.passengerResponse === "string" && ["confirmed", "no_answer", "cancelled"].includes(body.passengerResponse)) {
+    data.passengerResponse = body.passengerResponse;
+    data.passengerResponseAt = new Date();
+  }
   if (body.archive === true) data.archivedAt = new Date();
   if (body.archive === false) data.archivedAt = null;
 

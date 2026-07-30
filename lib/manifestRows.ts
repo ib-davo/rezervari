@@ -15,6 +15,8 @@ export type ManifestBooking = {
   adults: number;
   children: number;
   status: string;
+  notes?: string | null;
+  passengerResponse?: string | null;
   seatBookings: { seatNumber: number; tripId: string }[];
 };
 
@@ -26,7 +28,14 @@ export type ManifestPax = {
   paid: boolean;
   price: number; // preț per persoană
   currency: string;
+  confirm: string; // Confirmat / Nu răspunde / Anulat / "" (statut de contact)
+  note: string; // observațiile operatorului (doar pe primul rând al rezervării)
 };
+
+/** Statutul de confirmare (contact) pentru foaia de parcurs. */
+export function confirmLabel(pr?: string | null): string {
+  return pr === "confirmed" ? "Confirmat" : pr === "no_answer" ? "Nu răspunde" : pr === "cancelled" ? "Anulat" : "";
+}
 
 function cityOnly(s: string) { return s.split(",")[0].trim(); }
 /** Simbolul monedei rezervării — Anglia £ (GBP), Europa € (EUR). Per pasager,
@@ -73,6 +82,8 @@ export function expandPassengers(b: ManifestBooking, seats: number[]): ManifestP
       paid: b.paymentStatus === "paid",
       price: perPrice,
       currency: b.currency,
+      confirm: confirmLabel(b.passengerResponse),
+      note: i === 0 ? (b.notes || "").trim() : "", // nota pe primul rând al rezervării
     });
   }
   return out;

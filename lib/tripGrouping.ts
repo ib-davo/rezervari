@@ -456,6 +456,23 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
   const existingKeys = new Set(list.map((g) => g.key));
   const scheduledDaysSet = new Set<string>();
 
+  // Rute (zi|sens|țară) deja acoperite de un card CU rezervări. Nu mai afișăm un
+  // card GOL pe ALT autocar pentru aceeași rută — altfel apare un „autocar fantomă"
+  // (ex. vineri: DAW 777 are rezervările, dar ZNQ 874 apărea gol și lăsa să rezervi
+  // pe el, deși nu-i în cursă). O rută = un singur autocar pe zi.
+  const bookedRoute = new Set<string>();
+  for (const g of list) {
+    if (g.bookings.length === 0) continue;
+    const inbound = /chi[sș]in[aă]u|moldova/i.test(g.to);
+    const side = inbound ? g.from : g.to;
+    for (const c of side.split(",").map((s) => s.trim()).filter(Boolean)) {
+      if (/chi[sș]in[aă]u|moldova/i.test(c)) continue;
+      bookedRoute.add(`${g.dayKey}|${inbound}|${c.toLowerCase()}`);
+    }
+  }
+  const routeAlreadyBooked = (dk: string, inbound: boolean, countries: string[]) =>
+    countries.some((c) => bookedRoute.has(`${dk}|${inbound}|${c.toLowerCase()}`));
+
   // (A) Carduri GOALE din CURSELE REALE (sursa de adevăr — ce setează adminul).
   // Așa 17/19 iul apar pe DAW 777 fără nicio regulă hardcodată, iar orice mutare
   // de autocar din admin se reflectă automat aici.
@@ -464,8 +481,9 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     scheduledDaysSet.add(dk);
     const key = `${dk}:bus:${r.bus.id}`;
     if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
-    existingKeys.add(key);
     const countriesArr = [...r.countries].sort((a, b) => a.localeCompare(b, "ro"));
+    if (routeAlreadyBooked(dk, r.inbound, countriesArr)) continue; // rută deja servită de alt autocar → fără card gol
+    existingKeys.add(key);
     const countriesStr = countriesArr.join(", ");
     list.push({
       kind: "empty",
@@ -508,6 +526,7 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       scheduledDaysSet.add(dk);
       const key = `${dk}:bus:${bus.id}`;
       if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz
+      if (routeAlreadyBooked(dk, run.inbound, [...new Set(run.countries)])) continue; // rută deja servită de alt autocar
       existingKeys.add(key);
       const countriesStr = [...new Set(run.countries)].sort((a, b) => a.localeCompare(b, "ro")).join(", ");
       const [hh, mm] = (run.time || "12:00").split(":").map((n) => Number(n) || 0);

@@ -44,15 +44,16 @@ export async function GET(req: NextRequest) {
     { width: 18 },  // Telefon
     { width: 26 },  // Ruta
     { width: 12 },  // Plată
+    { width: 14 },  // Confirmare
     { width: 11 },  // Preț
-    { width: 24 },  // Observații
+    { width: 26 },  // Observații
   ];
 
   const thin = { style: "thin" as const, color: { argb: "FFD6DDEA" } };
   const border = { top: thin, left: thin, bottom: thin, right: thin };
 
   // Titlu: ruta
-  ws.mergeCells("A1:H1");
+  ws.mergeCells("A1:I1");
   const t = ws.getCell("A1");
   t.value = `${g.from}  →  ${g.to}`;
   t.font = { name: "Calibri", size: 18, bold: true, color: { argb: NAVY } };
@@ -60,20 +61,20 @@ export async function GET(req: NextRequest) {
   ws.getRow(1).height = 26;
 
   // Autocar
-  ws.mergeCells("A2:H2");
+  ws.mergeCells("A2:I2");
   const b2 = ws.getCell("A2");
   b2.value = `🚌  ${bus}`;
   b2.font = { size: 12, bold: true, color: { argb: NAVY } };
 
   // Detalii cursă
-  ws.mergeCells("A3:H3");
+  ws.mergeCells("A3:I3");
   const b3 = ws.getCell("A3");
   b3.value = `${dep}     ·     Pasageri: ${totalPax}${g.capacity ? `  ·  Ocupare: ${totalPax}/${g.capacity}` : ""}     ·     Total: ${fmtTotals(totals, "total")}   (încasat ${fmtTotals(totals, "paidSum")})`;
   b3.font = { size: 11, color: { argb: "FF475569" } };
   ws.getRow(4).height = 6;
 
   // Antet tabel (rândul 5)
-  const headers = ["Nr", "Loc", "Nume și prenume", "Telefon", "Ruta", "Plată", "Preț", "Observații"];
+  const headers = ["Nr", "Loc", "Nume și prenume", "Telefon", "Ruta", "Plată", "Confirmare", "Preț", "Observații"];
   const hr = ws.getRow(5);
   headers.forEach((h, i) => {
     const c = hr.getCell(i + 1);
@@ -95,22 +96,26 @@ export async function GET(req: NextRequest) {
       r.phone,
       r.route,
       r.paid ? "Achitat" : "Neachitat",
+      r.confirm,
       r.price,
-      "",
+      r.note,
     ];
     cells.forEach((v, ci) => {
       const c = row.getCell(ci + 1);
       c.value = v as ExcelJS.CellValue;
       c.border = border;
       c.font = { size: 11 };
-      c.alignment = { vertical: "middle", horizontal: ci === 2 || ci === 4 ? "left" : "center", wrapText: ci === 2 };
+      c.alignment = { vertical: "middle", horizontal: ci === 2 || ci === 4 || ci === 8 ? "left" : "center", wrapText: ci === 2 || ci === 8 };
       if (i % 2 === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREY } };
     });
     // Plată colorat
     const pay = row.getCell(6);
     pay.font = { size: 11, bold: true, color: { argb: r.paid ? "FF059669" : RED } };
+    // Confirmare colorat (verde=confirmat, roșu=anulat, chihlimbar=nu răspunde)
+    const conf = row.getCell(7);
+    conf.font = { size: 11, bold: !!r.confirm, color: { argb: r.confirm === "Confirmat" ? "FF059669" : r.confirm === "Anulat" ? RED : r.confirm === "Nu răspunde" ? "FFB45309" : "FF475569" } };
     // Preț cu simbolul monedei PASAGERULUI (Anglia £, Europa €) — cursă mixtă OK
-    const price = row.getCell(7);
+    const price = row.getCell(8);
     price.numFmt = `#,##0" ${currencySymbol(r.currency)}"`;
     price.font = { size: 11, bold: true };
     row.height = 20;
@@ -118,16 +123,16 @@ export async function GET(req: NextRequest) {
 
   // Total
   const totalRowIdx = 6 + rows.length + 1;
-  ws.mergeCells(`A${totalRowIdx}:E${totalRowIdx}`);
+  ws.mergeCells(`A${totalRowIdx}:F${totalRowIdx}`);
   const tl = ws.getCell(`A${totalRowIdx}`);
   tl.value = `TOTAL · ${totalPax} pasageri`;
   tl.font = { bold: true, size: 12, color: { argb: NAVY } };
   tl.alignment = { vertical: "middle", horizontal: "right" };
-  const tp = ws.getCell(`G${totalRowIdx}`);
+  const tp = ws.getCell(`H${totalRowIdx}`);
   tp.value = fmtTotals(totals, "total");
   tp.font = { bold: true, size: 12, color: { argb: NAVY } };
   tp.alignment = { horizontal: "center" };
-  ws.getCell(`F${totalRowIdx}`).value = "";
+  ws.getCell(`G${totalRowIdx}`).value = "";
   ws.getRow(totalRowIdx).height = 22;
 
   const buf = await wb.xlsx.writeBuffer();

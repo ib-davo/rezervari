@@ -84,6 +84,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<QuickFilter>("all");
   const [coachFilter, setCoachFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -137,6 +138,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         const next = { ...b };
         if (typeof patch.status === "string") next.status = patch.status;
         if (typeof patch.paymentStatus === "string") next.paymentStatus = patch.paymentStatus;
+        if (typeof patch.passengerResponse === "string") next.passengerResponse = patch.passengerResponse;
         if (patch.archive === true) next.archivedAt = new Date().toISOString();
         if (patch.archive === false) next.archivedAt = null;
         return next;
@@ -176,12 +178,28 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     [bookings],
   );
 
+  // Sursele/operatorii — filtru „cine a creat rezervarea" (site vs operator X/Y).
+  const sources = useMemo(() => {
+    const map = new Map<string, string>(); // value -> etichetă
+    for (const b of bookings) {
+      if (b.source === "site") map.set("site", "Client site");
+      else if (b.createdByName) map.set(`op:${b.createdByName}`, `Operator: ${b.createdByName}`);
+      else map.set(b.source, b.source);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [bookings]);
+
   const filtered = useMemo(() => bookings.filter((b) => {
     if (filter === "today" && dayKey(b.departureDate) !== todayKey) return false;
     if (filter === "pending" && b.status !== "pending") return false;
     if (filter === "unpaid" && (b.paymentStatus === "paid" || b.status === "cancelled")) return false;
     if (filter === "parcel" && b.type !== "parcel") return false;
     if (coachFilter !== "all" && (b.coach || "") !== coachFilter) return false;
+    if (sourceFilter !== "all") {
+      if (sourceFilter === "site") { if (b.source !== "site") return false; }
+      else if (sourceFilter.startsWith("op:")) { if (b.createdByName !== sourceFilter.slice(3)) return false; }
+      else if (b.source !== sourceFilter) return false;
+    }
     if (!q.trim()) return true;
     const s = q.toLowerCase();
     return (
@@ -192,7 +210,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       b.arrivalCity.toLowerCase().includes(s) ||
       (b.createdByName || "").toLowerCase().includes(s)
     );
-  }), [bookings, filter, q, coachFilter, todayKey]);
+  }), [bookings, filter, q, coachFilter, sourceFilter, todayKey]);
 
   // Grupare pe ZIUĂ → AUTOCAR: operatorii gândesc în curse, nu în listă plată de
   // pasageri împrăștiați. În arhivă poți astfel vedea/selecta un autocar pe o zi.
@@ -312,21 +330,40 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
           </div>
         )}
 
-        {/* Filtru pe AUTOCAR — vezi/selectează un autocar pe o zi, nu pasageri
-            împrăștiați. Apare când sunt mai multe autocare în set. */}
-        {!loading && !error && coaches.length > 1 && (
-          <div className="flex items-center gap-1.5">
-            <Bus className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
-            <select
-              value={coachFilter}
-              onChange={(e) => setCoachFilter(e.target.value)}
-              className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
-            >
-              <option value="all">Toate autocarele</option>
-              {coaches.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+        {/* Filtre pe AUTOCAR + SURSĂ — vezi/selectează un autocar pe o zi și cine
+            a creat rezervarea (site / operator X), nu pasageri împrăștiați. */}
+        {!loading && !error && (coaches.length > 1 || sources.length > 1) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {coaches.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <Bus className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                <select
+                  value={coachFilter}
+                  onChange={(e) => setCoachFilter(e.target.value)}
+                  className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                >
+                  <option value="all">Toate autocarele</option>
+                  {coaches.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {sources.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                <select
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                >
+                  <option value="all">Toți (site + operatori)</option>
+                  {sources.map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -349,13 +386,13 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         <div className="rounded-2xl border border-dashed border-[color:var(--ink-200)] px-4 py-14 text-center">
           <CalendarDays className="mx-auto h-8 w-8 text-[color:var(--ink-300)]" />
           <p className="mt-3 text-sm font-semibold text-[color:var(--navy-900)]">
-            {q.trim() || filter !== "all" || coachFilter !== "all"
+            {q.trim() || filter !== "all" || coachFilter !== "all" || sourceFilter !== "all"
               ? "Nimic nu se potrivește cu filtrarea."
               : scope === "active" ? "Nicio rezervare activă." : "Arhiva e goală."}
           </p>
-          {(q.trim() || filter !== "all" || coachFilter !== "all") && (
+          {(q.trim() || filter !== "all" || coachFilter !== "all" || sourceFilter !== "all") && (
             <button
-              onClick={() => { setQ(""); setFilter("all"); setCoachFilter("all"); }}
+              onClick={() => { setQ(""); setFilter("all"); setCoachFilter("all"); setSourceFilter("all"); }}
               className="mt-3 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
             >
               Resetează filtrele
@@ -545,6 +582,31 @@ function BookingCard({
       {/* Notița operatorului + surplus bagaj (de la îmbarcare) */}
       {b.notes && <div className="mt-1 text-[11px] italic text-[color:var(--ink-700)]">📝 {b.notes}</div>}
       {b.baggageSurplus && <div className="mt-1 text-[11px] font-semibold text-amber-700">🧳 Surplus bagaj: {b.baggageSurplus}</div>}
+
+      {/* Confirmare de contact (setată de operator — mai ales pentru pasagerii fără
+          email). Confirmat / Nu răspunde / Anulat. Apare în export Excel + PDF. */}
+      {scope === "active" && !cancelled && (
+        <div className="mt-2 flex items-center gap-1">
+          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Confirmare</span>
+          {([
+            ["confirmed", "Confirmat", "bg-emerald-500"],
+            ["no_answer", "Nu răspunde", "bg-amber-500"],
+            ["cancelled", "Anulat", "bg-red-500"],
+          ] as const).map(([v, label, on]) => {
+            const on2 = b.passengerResponse === v;
+            return (
+              <button
+                key={v}
+                disabled={busy === `conf-${v}`}
+                onClick={() => run(`conf-${v}`, { passengerResponse: v })}
+                className={`rounded-full px-2 py-1 text-[10px] font-bold transition-colors disabled:opacity-50 ${on2 ? `${on} text-white` : "bg-[color:var(--ink-50)] text-[color:var(--ink-500)] hover:bg-[color:var(--ink-100)]"}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Acțiuni — ascunse sub un buton ca să rămână compact; un tap le deschide */}
       <button
