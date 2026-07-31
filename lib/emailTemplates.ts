@@ -1,5 +1,6 @@
 import type { Booking } from "@prisma/client";
 import { appUrl } from "@/lib/appUrl";
+import { displayPassengerNames } from "@/lib/passengerNames";
 
 // Salut cu PRENUMELE. Convenția DAVO (formular „Nume prenume") pune numele de
 // familie în firstName și prenumele în lastName → prenumele = lastName. Pentru
@@ -469,8 +470,9 @@ export function adminNotificationHtml(b: ConfirmationData): string {
   const plecareValue = depTime
     ? `${formatDate(b.departureDate)} · ${depTime}`
     : formatDate(b.departureDate);
-  // Nume complet „Nume Prenume" (ex. „Gutan Maxim"); titlul folosește doar prenumele.
-  const fullName = [b.firstName, b.lastName].map((x) => (x || "").trim()).filter(Boolean).join(" ");
+  // Nume complet împerecheat per pasager „Nume Prenume, Nume Prenume" — NU
+  // concatenarea brută (care dădea „Lemnaru, Lemnaru Anisoara, Ana").
+  const fullName = displayPassengerNames(b.firstName, b.lastName ?? "");
   // Cine a creat rezervarea: operator (cu nume), admin (cu nume) sau clientul de pe site.
   const createdBy =
     b.source === "operator" ? `Operator: ${b.createdByName || "?"}`

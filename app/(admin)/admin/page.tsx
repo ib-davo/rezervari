@@ -19,6 +19,7 @@ import StatCard from "@/components/admin/StatCard";
 import Badge from "@/components/admin/Badge";
 import type { MockTrip } from "@/lib/adminMock";
 import { statusMeta, tripStatusMeta } from "@/lib/adminLabels";
+import { displayPassengerNames } from "@/lib/passengerNames";
 
 type Stats = {
   totalBookings: number;
@@ -180,7 +181,7 @@ export default function AdminDashboardPage() {
                     <div className="min-w-0">
                       <div className="font-mono text-xs font-bold text-slate-900">{b.bookingNumber}</div>
                       <div className="mt-0.5 text-sm text-slate-700 truncate">
-                        {b.firstName} {b.lastName}
+                        {displayPassengerNames(b.firstName, b.lastName)}
                       </div>
                       <div className="text-xs text-slate-500 truncate">
                         {b.departureCity} → {b.arrivalCity}

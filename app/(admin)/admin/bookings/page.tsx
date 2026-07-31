@@ -19,6 +19,7 @@ import { statusMeta } from "@/lib/adminLabels";
 import { destinations, moldovanCities } from "@/lib/data";
 import { BusSeatMap } from "@/components/booking/BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
+import { displayPassengerNames } from "@/lib/passengerNames";
 
 type Booking = {
   id: string;
@@ -388,7 +389,7 @@ export default function BookingsPage() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="font-medium text-slate-900">
-                          {b.firstName} {b.lastName}
+                          {displayPassengerNames(b.firstName, b.lastName)}
                         </div>
                         <div className="text-xs text-slate-500">{b.phone}</div>
                         <div className="text-xs text-slate-400">{b.email}</div>
