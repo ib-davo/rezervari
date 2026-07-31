@@ -171,6 +171,15 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [returnSeats, setReturnSeats] = useState<number[]>([]);
   const [returnTripInfo, setReturnTripInfo] = useState<PublicTrip | null>(null);
 
+  // Operatorul (embedded) adaugă pasageri și pe cursele de AZI care au plecat deja
+  // (îi ia pe traseu), deci lista de curse pornește de la ÎNCEPUTUL zilei de azi,
+  // nu de la ora curentă. Pe site (public) rămâne de la `now` — clientul nu poate
+  // rezerva o cursă plecată.
+  const [operatorFromDate] = useState<string | null>(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0).toISOString();
+  });
+
   // Datele pentru sumar/booking se derivă din cursele alese — nu mai sunt input.
   const date = outboundTripInfo?.departureAt ?? "";
   const returnDate = returnTripInfo?.departureAt ?? "";
@@ -719,6 +728,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                               subtitle="Cursa dus"
                               originCityId={originCityId}
                               destCityId={destCityId}
+                              // Operator: include și ziua de azi (cursa plecată — pasageri pe traseu).
+                              fromDate={embedded ? operatorFromDate : undefined}
                               maxSeats={passengers}
                               selectedTripId={outboundTripId}
                               selectedSeats={outboundSeats}
