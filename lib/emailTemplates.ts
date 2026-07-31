@@ -262,6 +262,10 @@ export type ConfirmationData = {
   // Autocarul atașat la cursa dus, dacă rezervarea e legată de un Trip.
   busLabel?: string | null;
   busPlate?: string | null;
+  // Cine a creat rezervarea — pentru notificarea către admin: "site" (client) sau
+  // "operator"/"admin" + numele. Afișat doar în emailul de admin.
+  source?: string | null;
+  createdByName?: string | null;
 };
 
 function paxLine(adults: number, children: number): string {
@@ -467,10 +471,16 @@ export function adminNotificationHtml(b: ConfirmationData): string {
     : formatDate(b.departureDate);
   // Nume complet „Nume Prenume" (ex. „Gutan Maxim"); titlul folosește doar prenumele.
   const fullName = [b.firstName, b.lastName].map((x) => (x || "").trim()).filter(Boolean).join(" ");
+  // Cine a creat rezervarea: operator (cu nume), admin (cu nume) sau clientul de pe site.
+  const createdBy =
+    b.source === "operator" ? `Operator: ${b.createdByName || "?"}`
+    : b.source === "admin" ? `Admin: ${b.createdByName || "?"}`
+    : "Client (site)";
   const rows: DetailRow[] = [
     { label: "Nr. rezervare", value: b.bookingNumber },
     { label: "Tip", value: isParcel ? "Colet" : "Pasager" },
     { label: "Client", value: fullName || b.firstName },
+    { label: "Creat de", value: createdBy },
     { label: "Cursa", value: `${b.departureCity} → ${b.arrivalCity}` },
     { label: "Plecare", value: plecareValue },
   ];

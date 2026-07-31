@@ -328,6 +328,8 @@ export async function POST(request: NextRequest) {
       payMethod: booking.payMethod,
       busLabel: outboundTrip?.bus.label ?? null,
       busPlate: outboundTrip?.bus.plate ?? null,
+      source: booking.source,
+      createdByName: booking.createdByName,
       confirmUrl: bookingResponseUrl(appUrl, booking.bookingNumber, 'confirm', confirmToken),
       cancelUrl: bookingResponseUrl(appUrl, booking.bookingNumber, 'cancel', cancelToken),
       trackUrl: `${appUrl.replace(/\/$/, '')}/livrare?nr=${booking.bookingNumber}`,

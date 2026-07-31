@@ -64,8 +64,9 @@ async function ensureTripsForSchedule(params: {
   durationHours: number;
   from: Date;
   plate?: string;
+  countryId?: string;
 }): Promise<void> {
-  const { routeId, weekday, time, durationHours, from, plate } = params;
+  const { routeId, weekday, time, durationHours, from, plate, countryId } = params;
 
   // Calculăm primele HORIZON_WEEKS ocurențe ale (weekday + time) după `from`.
   const expected = nextDepartures(weekday, time, HORIZON_WEEKS, from);
@@ -83,28 +84,55 @@ async function ensureTripsForSchedule(params: {
   const missing = expected.filter((d) => !existingTimes.has(d.getTime()));
   if (missing.length === 0) return;
 
-  // Autocarul cursei = cel din REGULA recurentă (după țară), ca cursele create
-  // lazy să aibă autobuzul corect din start. Fallback pe primul activ.
-  const bus =
+  // Autocarul PROGRAMAT (din regula recurentă, după țară). Fallback pe primul activ.
+  const schedBus =
     (plate
       ? await prisma.bus.findFirst({ where: { plate, active: true }, select: { id: true, totalSeats: true } })
       : null) ??
     (await prisma.bus.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" }, select: { id: true, totalSeats: true } }));
-  if (!bus) return; // fără autocar configurat, nu putem oferi rezervări
+  if (!schedBus) return; // fără autocar configurat, nu putem oferi rezervări
+
+  // Autocar EFECTIV per zi: dacă ziua are deja curse pe ALTĂ rută a aceleiași
+  // țări mutate pe alt autocar (ex. DAW 777), cursa nouă se creează pe ACEL
+  // autocar — ca să nu coexiste ZNQ 874 lângă DAW 777 pe aceeași zi.
+  const busByDay = new Map<number, { id: string; totalSeats: number }>();
+  if (countryId) {
+    const sibs = await prisma.trip.findMany({
+      where: { departureAt: { in: missing }, route: { OR: [{ originCity: { countryId } }, { destinationCity: { countryId } }] } },
+      select: { departureAt: true, bus: { select: { id: true, totalSeats: true } } },
+    });
+    const tally = new Map<number, Map<string, { n: number; bus: { id: string; totalSeats: number } }>>();
+    for (const s of sibs) {
+      const t = s.departureAt.getTime();
+      if (!tally.has(t)) tally.set(t, new Map());
+      const m = tally.get(t)!;
+      const cur = m.get(s.bus.id) ?? { n: 0, bus: s.bus };
+      cur.n += 1;
+      m.set(s.bus.id, cur);
+    }
+    for (const [t, m] of tally) {
+      let best: { n: number; bus: { id: string; totalSeats: number } } | null = null;
+      for (const v of m.values()) if (!best || v.n > best.n) best = v;
+      if (best) busByDay.set(t, best.bus);
+    }
+  }
 
   // createMany nu suportă skipDuplicates fără unique constraint, dar `missing`
   // e deja filtrat — duplicări concurrent sunt rare și ar fi acoperite de
   // următorul fetch (idempotent).
   await prisma.trip
     .createMany({
-      data: missing.map((dep) => ({
-        routeId,
-        busId: bus.id,
-        departureAt: dep,
-        arrivalAt: arrivalFor(dep, durationHours),
-        capacity: bus.totalSeats,
-        status: "scheduled",
-      })),
+      data: missing.map((dep) => {
+        const bus = busByDay.get(dep.getTime()) ?? schedBus;
+        return {
+          routeId,
+          busId: bus.id,
+          departureAt: dep,
+          arrivalAt: arrivalFor(dep, durationHours),
+          capacity: bus.totalSeats,
+          status: "scheduled",
+        };
+      }),
     })
     .catch((err) => {
       // Race condition (alt request a creat în paralel) — ignorăm, la următorul
@@ -219,6 +247,7 @@ export async function GET(req: NextRequest) {
         durationHours: duration,
         from: dateRange.gte,
         plate: busPlateForCountry(foreignCountry.name) ?? undefined,
+        countryId: foreignCountry.id,
       });
     }
 
@@ -238,6 +267,7 @@ export async function GET(req: NextRequest) {
           durationHours: ex.durationHours,
           from: dateRange.gte,
           plate: ex.plate,
+          countryId: foreignCountry.id,
         });
       }
     }
