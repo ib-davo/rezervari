@@ -77,6 +77,16 @@ function cityOnly(s: string): string {
   return s.split(",")[0].trim();
 }
 
+// Cursa e ÎN TRAFIC: a plecat, dar încă n-a ajuns. Un drum Moldova↔EU ține 28–40h,
+// deci „ziua trecută" nu înseamnă „gata" — autocarul duce pasagerii chiar acum și
+// operatorul trebuie să-i aibă în față. Fără sosire cunoscută (rezervări fără cursă
+// reală) presupunem cel mai lung drum, 40h.
+function isOnTheRoad(g: { departureAt: string; arrivalAt: string | null }, now: number): boolean {
+  const dep = Date.parse(g.departureAt);
+  const arr = g.arrivalAt ? Date.parse(g.arrivalAt) : dep + 40 * 60 * 60 * 1000;
+  return dep <= now && now < arr;
+}
+
 type BusOption = { id: string; label: string; plate: string | null; totalSeats: number | null; layoutJson?: string | null };
 
 export default function TripsView() {
@@ -92,6 +102,7 @@ export default function TripsView() {
   const [live, setLive] = useState(false);
   const [viewMonth, setViewMonth] = useState<Date>(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [nowTs, setNowTs] = useState(0); // ceasul cardurilor („Pe drum") — vezi load()
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitDay = useRef(false);
 
@@ -100,6 +111,10 @@ export default function TripsView() {
       const res = await fetch("/api/operator/trips", { cache: "no-store" });
       const data = await res.json();
       if (data.success) {
+        // Ceasul se împrospătează odată cu datele (la fiecare reîncărcare), ca
+        // „Pe drum" să se stingă singur când autocarul ajunge — fără Date.now()
+        // în render.
+        setNowTs(Date.now());
         setGroups(data.groups);
         setCalendar(data.calendar || {});
         setScheduledDays(new Set(data.scheduledDays || []));
@@ -150,17 +165,27 @@ export default function TripsView() {
     };
   }, [load, scheduleReload]);
 
-  // Selecția zilei implicite: azi dacă are curse, altfel prima zi cu curse.
+  // Selecția zilei implicite: azi dacă are curse. Altfel, dacă un autocar e chiar
+  // acum pe drum (plecat ieri/alaltăieri, încă neajuns), deschidem ZIUA LUI — altfel
+  // panoul sare la următoarea cursă și pasagerii din autocar par dispăruți. Ultimă
+  // opțiune: prima zi cu curse de acum înainte.
   useEffect(() => {
     if (didInitDay.current || loading) return;
     const days = Object.keys(calendar).sort();
     if (days.length === 0) return;
     const tk = todayKey();
-    const initial = calendar[tk] ? tk : (days.find((d) => d >= tk) ?? days[0]);
+    const now = Date.now();
+    const onRoad = groups
+      .filter((g) => g.bookings.length > 0 && isOnTheRoad(g, now))
+      .map((g) => g.dayKey)
+      .sort();
+    const initial = calendar[tk]
+      ? tk
+      : (onRoad[onRoad.length - 1] ?? days.find((d) => d >= tk) ?? days[0]);
     setSelectedDay(initial);
     setViewMonth(parseKey(initial));
     didInitDay.current = true;
-  }, [calendar, loading]);
+  }, [calendar, groups, loading]);
 
   // Actualizare optimistă per rezervare (în structura grupată).
   const act = useCallback(async (id: string, patch: Record<string, unknown>) => {
@@ -443,7 +468,7 @@ export default function TripsView() {
           {visibleGroups.map((g) => (
             // Cheie dependentă de căutare: cardurile se remontează la trecerea
             // căutare pornit/oprit, ca `expanded` să pornească din starea corectă.
-            <TripCard key={searching ? `${g.key}:s` : g.key} g={g} onAct={act} showDay={searching} buses={buses} isSup={isSup} onReload={load} />
+            <TripCard key={searching ? `${g.key}:s` : g.key} g={g} onAct={act} showDay={searching} buses={buses} isSup={isSup} onReload={load} nowTs={nowTs} />
           ))}
         </div>
       )}
@@ -468,13 +493,14 @@ function SkeletonTrips() {
   );
 }
 
-function TripCard({ g, onAct, showDay, buses, isSup, onReload }: {
+function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
   g: TripGroup;
   onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
   showDay: boolean;
   buses: BusOption[];
   isSup: boolean;
   onReload: () => void;
+  nowTs: number;
 }) {
   // Colapsat implicit — se desfășoară pasagerii la click pe antet (ca să nu dai
   // scroll între autocare). La căutare pornește desfășurat.
@@ -488,6 +514,7 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload }: {
     try { return JSON.parse(raw) as BusLayout; } catch { return null; }
   }, [buses, g.busId]);
   const dep = new Date(g.departureAt);
+  const onRoad = isOnTheRoad(g, nowTs);
   // Ocupare + „plătite" pe PASAGERI (locuri), nu pe rezervări (o rezervare poate
   // avea mai multe locuri = mai mulți pasageri). Pe circuitul DAW 077 (duminică +
   // luni, același autocar) ocuparea afișată = totalul COMBINAT, ca să nu suprarezervezi.
@@ -607,9 +634,19 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload }: {
             <ArrowRight className="h-3 w-3 shrink-0 text-[color:var(--ink-400)]" />
             <span className="truncate">{g.to}</span>
           </div>
-          <div className="mt-0.5 text-xs font-semibold text-[color:var(--ink-500)]">
-            {showDay && <>{cap(fmtDayLong.format(dep))} · </>}
-            {fmtTime.format(dep)}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs font-semibold text-[color:var(--ink-500)]">
+            <span>
+              {showDay && <>{cap(fmtDayLong.format(dep))} · </>}
+              {fmtTime.format(dep)}
+            </span>
+            {onRoad && (
+              <span
+                title={g.arrivalAt ? `Sosire estimată ${cap(fmtDayLong.format(new Date(g.arrivalAt)))} ${fmtTime.format(new Date(g.arrivalAt))}` : "Autocarul e pe traseu"}
+                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800"
+              >
+                <Bus className="h-3 w-3" /> Pe drum
+              </span>
+            )}
           </div>
           {busLayout && (
             <button

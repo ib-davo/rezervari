@@ -3,6 +3,7 @@
 // și de /api/operator/manifest (export Excel/PDF), ca să fie o singură sursă.
 import { prisma } from "@/lib/prisma";
 import { busPlateForRun, scheduledRunsForDate } from "@/lib/busSchedule";
+import { ACTIVE_RETENTION_DAYS, activeCutoff, activeLegWhere } from "@/lib/activeWindow";
 
 export const BOOKING_SELECT = {
   id: true,
@@ -111,17 +112,14 @@ function paxOf(b: BookingRow): number {
   return Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
 }
 
-// cutoff = acum − 24h: rezervarea rămâne vizibilă încă 24h DUPĂ ora plecării
-// (sau a returului), ca operatorul să aibă timp după ce cursa a pornit — abia apoi
-// dispare din panou. Pentru tur-retur contează returul (ultima etapă).
+// Rezervarea rămâne vizibilă `ACTIVE_RETENTION_DAYS` zile DUPĂ ora ultimei etape
+// (returul dacă există, altfel plecarea) — cât timp autocarul e pe drum și încă o
+// zi după sosire. Vezi lib/activeWindow.ts pentru de ce nu-s 24h.
 function loadBookings(cutoff: Date) {
   return prisma.booking.findMany({
     where: {
       archivedAt: null,
-      OR: [
-        { returnDate: { gte: cutoff } },
-        { returnDate: null, departureDate: { gte: cutoff } },
-      ],
+      OR: activeLegWhere(cutoff),
     },
     select: BOOKING_SELECT,
     orderBy: { departureDate: "asc" },
@@ -152,7 +150,7 @@ type Group = TripGroupData & {
 
 export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; calendar: Record<string, number>; scheduledDays: string[] }> {
   const now = new Date();
-  const bookings = await loadBookings(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+  const bookings = await loadBookings(activeCutoff(now));
 
   const tripIds = [
     ...new Set(bookings.flatMap((b) => [b.tripId, b.returnTripId]).filter((x): x is string => !!x)),
@@ -192,13 +190,17 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     select: { name: true, outboundWeekday: true, outboundTime: true, returnWeekday: true, returnTime: true },
   });
 
-  // CURSE REALE viitoare (scheduled/boarding) = SURSA DE ADEVĂR pentru autocar,
-  // exact ce setează adminul prin Trip.busId. Panoul le citește pe ELE, nu regula
-  // hardcodată din busSchedule. Aceea rămâne DOAR ca fallback pe zilele fără curse
+  // CURSE REALE (scheduled/boarding) = SURSA DE ADEVĂR pentru autocar, exact ce
+  // setează adminul prin Trip.busId. Panoul le citește pe ELE, nu regula hardcodată
+  // din busSchedule. Aceea rămâne DOAR ca fallback pe zilele fără curse
   // materializate (ca să nu rămână calendarul gol în viitorul îndepărtat).
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Fereastra pornește cu `ACTIVE_RETENTION_DAYS` în URMĂ, nu de azi: rezervările
+  // păstrate de pe cursele plecate ieri trebuie să-și găsească autocarul real,
+  // altfel cardul zilei de ieri s-ar rupe în bucăți „fără autocar".
+  const todayKeyStr = dayKey(now);
+  const retentionStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ACTIVE_RETENTION_DAYS);
   const futureTrips = await prisma.trip.findMany({
-    where: { departureAt: { gte: startOfToday }, status: { in: ["scheduled", "boarding"] } },
+    where: { departureAt: { gte: retentionStart }, status: { in: ["scheduled", "boarding"] } },
     select: {
       departureAt: true,
       bus: { select: { id: true, label: true, plate: true, totalSeats: true } },
@@ -339,6 +341,11 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     else if (direction === "in") g._dirIn++;
     if (trip) g._memberTrips.add(trip.id);
     if (departureIso < g.departureAt) g.departureAt = departureIso;
+    // Sosirea cardului = cea mai TÂRZIE sosire a curselor lui (cardul se închide
+    // când a coborât și ultimul pasager). Contează pentru „pe drum": grupul putea
+    // fi creat de o rezervare fără cursă (arrivalAt null) și rămânea fără sosire.
+    const arrIso = trip?.arrivalAt ? trip.arrivalAt.toISOString() : null;
+    if (arrIso && (!g.arrivalAt || arrIso > g.arrivalAt)) g.arrivalAt = arrIso;
     if (!g.capacity && (bus?.totalSeats || trip?.capacity)) g.capacity = bus?.totalSeats ?? trip?.capacity ?? null;
     g.bookings.push(b);
   };
@@ -478,6 +485,10 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
   // de autocar din admin se reflectă automat aici.
   for (const [rkey, r] of realRunByDayBus) {
     const dk = rkey.slice(0, rkey.indexOf(":"));
+    // Zilele TRECUTE le-am încărcat doar ca rezervările rămase să-și găsească
+    // autocarul. Fără rezervări n-au ce arăta — nu umplem calendarul în urmă cu
+    // carduri goale pe curse care au plecat deja.
+    if (dk < todayKeyStr) continue;
     scheduledDaysSet.add(dk);
     const key = `${dk}:bus:${r.bus.id}`;
     if (existingKeys.has(key)) continue; // ziua are deja rezervări pe acest autobuz

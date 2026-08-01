@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { activeCutoff, pastLegWhere } from "@/lib/activeWindow";
 
 export const dynamic = "force-dynamic";
 
@@ -17,18 +18,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Arhivăm abia la 24h DUPĂ plecare (retur dacă există), aliniat cu vizibilitatea
-  // din panou (loadBookings folosește același prag now−24h). Altfel cursele care
-  // tocmai au plecat azi ar dispărea permanent din panou în aceeași zi.
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  // Arhivăm abia după fereastra din lib/activeWindow (aceeași folosită de panou
+  // și de listele Active/Arhivă). Pragul vechi de 24h arhiva PERMANENT, la 02:00
+  // noaptea, cursa care era încă pe drum spre Belgia/Anglia — pasagerii ei
+  // dispăreau din panou fix în ziua în care autocarul îi transporta.
+  const cutoff = activeCutoff();
 
   const res = await prisma.booking.updateMany({
     where: {
       archivedAt: null,
-      OR: [
-        { returnDate: null, departureDate: { lt: cutoff } },
-        { returnDate: { not: null, lt: cutoff } },
-      ],
+      OR: pastLegWhere(cutoff),
     },
     data: { archivedAt: new Date() },
   });

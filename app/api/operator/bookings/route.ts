@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { busPlateForRun } from "@/lib/busSchedule";
 import { countryOf } from "@/lib/tripGrouping";
+import { activeCutoff, activeLegWhere, pastLegWhere } from "@/lib/activeWindow";
 
 export const dynamic = "force-dynamic";
 
@@ -49,27 +50,23 @@ export async function GET(req: NextRequest) {
 
   const scope = new URL(req.url).searchParams.get("scope") === "archived" ? "archived" : "active";
 
-  // O cursă "a avut loc" când i-a trecut ORA reală de plecare (retur dacă
-  // există, altfel dus) — NU la miezul nopții. `departureDate`/`returnDate`
-  // sunt timestamp-uri complete (ex. 08:30), deci comparăm cu momentul curent:
-  // o cursă de azi 08:30 dispare din Active după ora 08:30, nu abia mâine.
-  // Comparație pe instant absolut → corectă indiferent de fusul serverului.
-  const now = new Date();
+  // O rezervare rămâne în Active cât timp cursa e „în desfășurare": nu dispare
+  // la ora plecării (autocarul e pe drum 28–40h și pasagerii lui trebuie să fie
+  // în listă), ci după fereastra din lib/activeWindow — același prag ca panoul
+  // de curse și ca cronul de arhivare. Comparație pe instant absolut → corectă
+  // indiferent de fusul serverului.
+  const cutoff = activeCutoff();
 
   const where =
     scope === "active"
       ? {
           archivedAt: null,
-          OR: [
-            { returnDate: { gte: now } },
-            { returnDate: null, departureDate: { gte: now } },
-          ],
+          OR: activeLegWhere(cutoff),
         }
       : {
           OR: [
             { archivedAt: { not: null } },
-            { returnDate: null, departureDate: { lt: now } },
-            { returnDate: { not: null, lt: now } },
+            ...pastLegWhere(cutoff),
           ],
         };
 
