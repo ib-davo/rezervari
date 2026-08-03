@@ -186,6 +186,16 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [result, setResult] = useState<BookingResult | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Telefonul are deja o rezervare pe ziua asta, dar pe ALT nume (familie pe un
+  // singur telefon). Serverul refuză până când operatorul confirmă explicit că
+  // e altă persoană — același om înscris de două ori nu ajunge niciodată aici.
+  //
+  // Atât avertismentul, cât și bifa sunt legate de identitatea pentru care au
+  // fost date (telefon + nume + zi): dacă operatorul schimbă clientul, ambele
+  // dispar singure. Altfel o bifă rămasă de la clientul precedent ar strecura
+  // tăcut exact dublura pe care o blocăm.
+  const [dup, setDup] = useState<{ key: string; message: string } | null>(null);
+  const [dupOkFor, setDupOkFor] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [payMethod, setPayMethod] = useState<"card" | "cash">("card");
   // Preț manual (doar operator/embedded) — suprascrie totalul calculat.
@@ -207,6 +217,11 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // cu `passengers` în updatePassengers — adăugăm/scoatem perechi când userul
   // schimbă numărul de călători.
   const [extraPassengers, setExtraPassengers] = useState<PassengerName[]>([]);
+
+  // Cine e clientul pentru care s-a dat avertismentul / bifa (vezi `dup`).
+  const dupKey = `${person.phone.trim()}|${person.firstName.trim().toLowerCase()}|${person.lastName.trim().toLowerCase()}|${date}`;
+  const dupWarning = dup && dup.key === dupKey ? dup.message : null;
+  const dupConfirmed = dupOkFor === dupKey;
 
   const [sender, setSender] = useState({
     name: "",
@@ -616,6 +631,9 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               // Observațiile se salvează pe rezervare (Booking.notes) — se văd
               // în panoul operatorilor pe cardul rezervării.
               note: person.note.trim() || undefined,
+              // „E altă persoană pe același telefon" — bifat de operator după
+              // avertisment. Serverul îl acceptă doar pentru nume DIFERIT.
+              allowSamePhone: dupConfirmed || undefined,
             }
           : {
               type: "parcel",
@@ -664,7 +682,15 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       });
       const data = await res.json();
       if (data.success) setResult(data.booking);
-      else setSubmitError(data.error || "Eroare la procesarea rezervării");
+      else if (data.duplicate?.canOverride) {
+        // Alt nume pe același telefon: nu e o eroare, e o verificare. Arătăm
+        // rezervarea existentă și cerem bifa înainte de a doua trimitere.
+        setDup({ key: dupKey, message: data.error });
+        setSubmitError(null);
+      } else {
+        setDup(null);
+        setSubmitError(data.error || "Eroare la procesarea rezervării");
+      }
     } catch {
       setSubmitError("Eroare de rețea. Încearcă din nou.");
     } finally {
@@ -951,6 +977,26 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                 </div>
               )}
 
+              {dupWarning && (
+                <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                  <div className="flex items-start gap-3">
+                    <Info className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div className="font-medium leading-relaxed">{dupWarning}</div>
+                  </div>
+                  <label className="mt-3 flex items-start gap-3 cursor-pointer rounded-lg border border-amber-300 bg-white p-3">
+                    <input
+                      type="checkbox"
+                      checked={dupConfirmed}
+                      onChange={(e) => setDupOkFor(e.target.checked ? dupKey : null)}
+                      className="mt-0.5 h-4 w-4 accent-[color:var(--red-500)] cursor-pointer shrink-0"
+                    />
+                    <span className="text-sm text-[color:var(--ink-700)] leading-relaxed">
+                      Confirm: e <strong>altă persoană</strong>, rezervată pe același telefon.
+                    </span>
+                  </label>
+                </div>
+              )}
+
               {step === steps.length - 1 && (
                 <label className="mt-4 flex items-start gap-3 cursor-pointer rounded-xl border border-[color:var(--ink-200)] bg-white p-4 hover:border-[color:var(--navy-500)] transition-colors">
                   <input
@@ -999,7 +1045,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                   <button
                     type="button"
                     onClick={submit}
-                    disabled={submitting || !consent}
+                    disabled={submitting || !consent || (!!dupWarning && !dupConfirmed)}
                     className="inline-flex items-center gap-2 rounded-full bg-[color:var(--success)] px-6 py-3 text-sm font-semibold text-white hover:brightness-110 transition-all shadow-[0_12px_30px_-10px_rgba(16,196,155,0.55)] disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {submitting ? "Se procesează..." : (

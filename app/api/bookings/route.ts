@@ -9,7 +9,49 @@ import { enqueueRemindersOnly } from '@/lib/emailQueue'
 import { createBookingToken, bookingResponseUrl } from '@/lib/bookingToken'
 import { publicAppUrl } from '@/lib/appUrl'
 import { verifyOperatorToken, OPERATOR_COOKIE } from '@/lib/operatorSession'
+import {
+  findDuplicateByPhone,
+  duplicateMessageForOperator,
+  duplicateMessagePublic,
+  type DuplicateBooking,
+} from '@/lib/duplicatePhone'
 import type { SeatLayout } from '@/lib/adminMock'
+
+// Dublură de telefon prinsă ÎN tranzacție (doi operatori care salvează în
+// aceeași secundă). O aruncăm ca să anulăm tranzacția, o traducem afară în 409.
+class DuplicatePhoneError extends Error {
+  constructor(readonly dup: DuplicateBooking) {
+    super('duplicate phone')
+  }
+}
+
+// Cine poate trece peste avertisment: DOAR un operator, DOAR când e alt nume pe
+// același telefon (familia care rezervă de pe telefonul unuia singur) și DOAR
+// dacă a bifat explicit confirmarea. Același om înscris a doua oară nu trece
+// niciodată — ăsta e chiar bug-ul pe care îl închidem. Pe site nu există bifă.
+function allowedDuplicate(
+  dup: DuplicateBooking,
+  operator: { id: string } | null,
+  body: { allowSamePhone?: unknown }
+): boolean {
+  return !!operator && !dup.samePerson && body.allowSamePhone === true
+}
+
+function duplicateResponse(dup: DuplicateBooking, operator: { id: string } | null) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: operator ? duplicateMessageForOperator(dup) : duplicateMessagePublic(dup),
+      duplicate: {
+        samePerson: dup.samePerson,
+        canOverride: !!operator && !dup.samePerson,
+        // Numărul rezervării altcuiva rămâne intern — pe site nu-l trimitem.
+        ...(operator ? { bookingNumber: dup.bookingNumber, seats: dup.seats } : {}),
+      },
+    },
+    { status: 409 }
+  )
+}
 
 function generateBookingNumber(): string {
   const year = new Date().getFullYear()
@@ -98,6 +140,23 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+    }
+
+    const departureDate = new Date(body.departureDate)
+    const returnDate = body.returnDate ? new Date(body.returnDate) : null
+    if (Number.isNaN(departureDate.getTime()) || (returnDate && Number.isNaN(returnDate.getTime()))) {
+      return NextResponse.json({ success: false, error: 'Dată invalidă' }, { status: 400 })
+    }
+
+    // Un pasager = O rezervare pe zi. Verificăm ÎNAINTE de validarea locurilor
+    // și de trimiterea emailurilor, ca operatorul să afle imediat că omul e deja
+    // înscris (l-a sunat și pe colegul lui) și să editeze rezervarea existentă.
+    // Vezi lib/duplicatePhone — recontrolăm și în tranzacție, pentru salvări
+    // simultane. Doar pasageri: un expeditor poate trimite mai multe colete/zi.
+    const dupCheck = { phone: body.phone, firstName: body.firstName, lastName: body.lastName, departureDate, returnDate }
+    if (body.type === 'passenger') {
+      const dup = await findDuplicateByPhone(prisma, dupCheck)
+      if (dup && !allowedDuplicate(dup, operator, body)) return duplicateResponse(dup, operator)
     }
 
     const tripId: string | undefined = body.tripId || undefined
@@ -221,6 +280,13 @@ export async function POST(request: NextRequest) {
     let booking
     try {
       booking = await prisma.$transaction(async (tx) => {
+        // Recontrol în tranzacție: doi operatori pot apăsa „Rezervă" în aceeași
+        // secundă, iar verificarea de mai sus s-ar fi făcut la amândoi înainte
+        // ca vreunul să scrie. Aici fereastra e de milisecunde.
+        if (body.type === 'passenger') {
+          const dup = await findDuplicateByPhone(tx, dupCheck)
+          if (dup && !allowedDuplicate(dup, operator, body)) throw new DuplicatePhoneError(dup)
+        }
         const b = await tx.booking.create({
           data: {
             bookingNumber,
@@ -228,8 +294,8 @@ export async function POST(request: NextRequest) {
             tripType: body.tripType || 'one-way',
             departureCity: body.departureCity,
             arrivalCity: body.arrivalCity,
-            departureDate: new Date(body.departureDate),
-            returnDate: body.returnDate ? new Date(body.returnDate) : null,
+            departureDate,
+            returnDate,
             firstName: body.firstName,
             lastName: body.lastName,
             email: body.email || '',
@@ -273,6 +339,7 @@ export async function POST(request: NextRequest) {
         return b
       })
     } catch (error) {
+      if (error instanceof DuplicatePhoneError) return duplicateResponse(error.dup, operator)
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         return NextResponse.json(
           {
