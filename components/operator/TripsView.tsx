@@ -10,6 +10,7 @@ import {
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { SeatMapModal } from "@/components/operator/SeatMapModal";
 import type { BusLayout } from "@/lib/adminMock";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
@@ -194,6 +195,12 @@ export default function TripsView() {
       if (typeof patch.status === "string") next.status = patch.status;
       if (typeof patch.paymentStatus === "string") next.paymentStatus = patch.paymentStatus;
       if (typeof patch.passengerResponse === "string") next.passengerResponse = patch.passengerResponse;
+      else if (patch.passengerResponse === null) next.passengerResponse = null;
+      if (patch.board && typeof patch.board === "object") {
+        const bd = patch.board as { boarded?: boolean };
+        if (bd.boarded === true) next.boardedAt = new Date().toISOString();
+        if (bd.boarded === false) { next.boardedAt = null; next.boardedBy = null; }
+      }
       if (patch.archive === true) next.archivedAt = new Date().toISOString();
       return next;
     };
@@ -814,6 +821,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   const [confirmPaid, setConfirmPaid] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const cancelled = b.status === "cancelled";
+  const state = stateOf(b);
   const assignBus = async (busId: string) => {
     setBusy("bus");
     await onAct(b.id, { manualBusId: busId || null });
@@ -835,11 +843,6 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             <span className={`h-2 w-2 shrink-0 rounded-full ${statusDot(b.status)}`} title={statusLabel(b.status)} />
             <span className="text-sm font-bold text-[color:var(--navy-900)] truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
-            {b.boardedAt && (
-              <span className="shrink-0 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white" title={`Îmbarcat${b.boardedBy ? ` de ${b.boardedBy}` : ""}`}>
-                Îmbarcat
-              </span>
-            )}
             {b.type === "parcel" && <Package className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />}
             {seats.length > 0 && (
               <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-[color:var(--navy-900)]">
@@ -870,31 +873,19 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             {b.source === "site" && b.passengerResponse === "cancelled" && <span className="font-semibold text-red-600">· ✗ client</span>}
             {cancelled && <span className="font-semibold text-red-600">· anulată</span>}
           </div>
-          {/* Confirmare de contact setată de OPERATOR (mai ales pentru pasagerii
-              fără email): Confirmat / Nu răspunde / Anulat. Soft — NU eliberează
-              locurile (pentru asta e „Anulează"). Apare mereu în export Excel + PDF. */}
-          {!cancelled && (
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Confirmare</span>
-              {([
-                ["confirmed", "Confirmat", "bg-emerald-500"],
-                ["no_answer", "Nu răspunde", "bg-amber-500"],
-                ["cancelled", "Anulat", "bg-red-500"],
-              ] as const).map(([v, label, onCls]) => {
-                const active2 = b.passengerResponse === v;
-                return (
-                  <button
-                    key={v}
-                    disabled={busy === `conf-${v}`}
-                    onClick={() => run(`conf-${v}`, { passengerResponse: v })}
-                    className={`rounded-full px-2 py-1 text-[10px] font-bold transition-colors disabled:opacity-50 ${active2 ? `${onCls} text-white` : "bg-[color:var(--ink-50)] text-[color:var(--ink-500)] hover:bg-[color:var(--ink-100)]"}`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {/* O SINGURĂ stare a pasagerului, setată de OPERATOR (mai ales pentru cei
+              fără email): Necontactat / Confirmat / Nu răspunde / Anulat / Îmbarcat.
+              Soft — NU eliberează locurile (pentru asta e „Anulează"). Apare mereu
+              în export Excel + PDF. */}
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Stare</span>
+            <StatusSelect
+              value={state}
+              readOnly={cancelled}
+              title={b.boardedAt && b.boardedBy ? `Îmbarcat de ${b.boardedBy}` : undefined}
+              onChange={(next) => onAct(b.id, statePatch(next, !!b.boardedAt))}
+            />
+          </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-sm font-extrabold leading-none text-[color:var(--navy-900)]">{b.price}{curr(b.currency)}</div>

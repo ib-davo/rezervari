@@ -7,6 +7,7 @@ import {
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus,
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
 import { TripPicker } from "@/components/booking/TripPicker";
@@ -139,6 +140,12 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         if (typeof patch.status === "string") next.status = patch.status;
         if (typeof patch.paymentStatus === "string") next.paymentStatus = patch.paymentStatus;
         if (typeof patch.passengerResponse === "string") next.passengerResponse = patch.passengerResponse;
+        else if (patch.passengerResponse === null) next.passengerResponse = null;
+        if (patch.board && typeof patch.board === "object") {
+          const bd = patch.board as { boarded?: boolean };
+          if (bd.boarded === true) next.boardedAt = new Date().toISOString();
+          if (bd.boarded === false) { next.boardedAt = null; next.boardedBy = null; }
+        }
         if (patch.archive === true) next.archivedAt = new Date().toISOString();
         if (patch.archive === false) next.archivedAt = null;
         return next;
@@ -499,6 +506,7 @@ function BookingCard({
   const dep = new Date(b.departureDate);
   const ret = b.returnDate ? new Date(b.returnDate) : null;
   const cancelled = b.status === "cancelled";
+  const state = stateOf(b);
   // Locurile, separate dus/retur — clientul întreabă mereu "ce loc am?".
   const seats = b.seatBookings ?? [];
   const outboundSeats = seats.filter((s) => s.tripId === b.tripId).map((s) => s.seatNumber);
@@ -565,11 +573,6 @@ function BookingCard({
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[color:var(--navy-900)] min-w-0">
           <User className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
           <span className="min-w-0 truncate">{displayPassengerNames(b.firstName, b.lastName)}</span>
-          {b.boardedAt && (
-            <span className="shrink-0 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white" title={`Îmbarcat${b.boardedBy ? ` de ${b.boardedBy}` : ""}`}>
-              Îmbarcat
-            </span>
-          )}
         </span>
         <a
           href={`tel:${b.phone}`}
@@ -583,30 +586,19 @@ function BookingCard({
       {b.notes && <div className="mt-1 text-[11px] italic text-[color:var(--ink-700)]">📝 {b.notes}</div>}
       {b.baggageSurplus && <div className="mt-1 text-[11px] font-semibold text-amber-700">🧳 Surplus bagaj: {b.baggageSurplus}</div>}
 
-      {/* Confirmare de contact (setată de operator — mai ales pentru pasagerii fără
-          email). Confirmat / Nu răspunde / Anulat. Apare în export Excel + PDF. */}
-      {scope === "active" && !cancelled && (
-        <div className="mt-2 flex items-center gap-1">
-          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Confirmare</span>
-          {([
-            ["confirmed", "Confirmat", "bg-emerald-500"],
-            ["no_answer", "Nu răspunde", "bg-amber-500"],
-            ["cancelled", "Anulat", "bg-red-500"],
-          ] as const).map(([v, label, on]) => {
-            const on2 = b.passengerResponse === v;
-            return (
-              <button
-                key={v}
-                disabled={busy === `conf-${v}`}
-                onClick={() => run(`conf-${v}`, { passengerResponse: v })}
-                className={`rounded-full px-2 py-1 text-[10px] font-bold transition-colors disabled:opacity-50 ${on2 ? `${on} text-white` : "bg-[color:var(--ink-50)] text-[color:var(--ink-500)] hover:bg-[color:var(--ink-100)]"}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* O SINGURĂ stare a pasagerului (setată de operator — mai ales pentru cei
+          fără email): Necontactat / Confirmat / Nu răspunde / Anulat / Îmbarcat.
+          Soft — NU eliberează locurile (pentru asta e „Anulează").
+          Apare în export Excel + PDF. */}
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Stare</span>
+        <StatusSelect
+          value={state}
+          readOnly={scope !== "active" || cancelled}
+          title={b.boardedAt && b.boardedBy ? `Îmbarcat de ${b.boardedBy}` : undefined}
+          onChange={(next) => onAct(b.id, statePatch(next, !!b.boardedAt))}
+        />
+      </div>
 
       {/* Acțiuni — ascunse sub un buton ca să rămână compact; un tap le deschide */}
       <button

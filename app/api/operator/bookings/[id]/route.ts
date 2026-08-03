@@ -186,6 +186,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       upd.paymentStatus = "paid";
       upd.paidAt = new Date();
     }
+    // Dropdown-ul de stare din listă trimite retragerea îmbarcării ȘI noua stare
+    // de contact într-un singur request (o stare, nu două câmpuri separate).
+    if (typeof body.passengerResponse === "string" && ["confirmed", "no_answer", "cancelled"].includes(body.passengerResponse)) {
+      upd.passengerResponse = body.passengerResponse;
+      upd.passengerResponseAt = new Date();
+    } else if (body.passengerResponse === null) {
+      upd.passengerResponse = null;
+      upd.passengerResponseAt = null;
+    }
     await prisma.booking.update({ where: { id }, data: upd });
     return NextResponse.json({ success: true });
   }
@@ -206,6 +215,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.passengerResponse === "string" && ["confirmed", "no_answer", "cancelled"].includes(body.passengerResponse)) {
     data.passengerResponse = body.passengerResponse;
     data.passengerResponseAt = new Date();
+  } else if (body.passengerResponse === null) {
+    // „Necontactat" din dropdown = revenire la starea inițială.
+    data.passengerResponse = null;
+    data.passengerResponseAt = null;
   }
   if (body.archive === true) data.archivedAt = new Date();
   if (body.archive === false) data.archivedAt = null;
