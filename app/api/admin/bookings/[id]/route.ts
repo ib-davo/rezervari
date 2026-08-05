@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { enqueueForBooking, cancelForBooking, sendCancellationNow, enqueueRemindersOnly } from '@/lib/emailQueue'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
+import { findDuplicateByPhone, duplicateMessageForOperator, phoneKey, passengerKeys } from '@/lib/duplicatePhone'
 
 // Whitelist explicit — admin nu poate seta id/createdAt/relații etc.
 type EditableField = keyof typeof EDITABLE_FIELDS
@@ -123,6 +124,52 @@ export async function PATCH(
         dayChangedNoTrip = true
       } else if (data.returnDate instanceof Date && (!previous.returnDate || utcDayOf(data.returnDate) !== utcDayOf(previous.returnDate))) {
         dayChangedNoTrip = true
+      }
+    }
+
+    // Dublura pe telefon: editarea poate schimba telefonul sau numele, iar
+    // crearea blochează exact combinația asta. Fără recontrol, ce nu se poate
+    // crea se poate obține prin editare. `excludeBookingId` scoate rezervarea
+    // însăși din căutare. Ca la operator, doar ACEEAȘI persoană blochează —
+    // alt nume pe același telefon e familie și trece.
+    if (previous.type === 'passenger') {
+      const newPhone = typeof data.phone === 'string' ? data.phone : previous.phone
+      const newFirst = typeof data.firstName === 'string' ? data.firstName : previous.firstName
+      const newLast = typeof data.lastName === 'string' ? data.lastName : previous.lastName
+      const newDep = data.departureDate instanceof Date ? data.departureDate : previous.departureDate
+      const newRet = 'returnDate' in data
+        ? (data.returnDate instanceof Date ? data.returnDate : null)
+        : previous.returnDate
+      const identityChanged =
+        phoneKey(newPhone) !== phoneKey(previous.phone) ||
+        passengerKeys(newFirst, newLast).join('|') !== passengerKeys(previous.firstName, previous.lastName).join('|') ||
+        utcDayOf(newDep) !== utcDayOf(previous.departureDate)
+      if (identityChanged) {
+        const dup = await findDuplicateByPhone(prisma, {
+          phone: newPhone,
+          firstName: newFirst,
+          lastName: newLast,
+          departureDate: newDep,
+          returnDate: newRet,
+          excludeBookingId: id,
+        })
+        if (dup?.samePerson) {
+          return NextResponse.json({ success: false, error: duplicateMessageForOperator(dup) }, { status: 409 })
+        }
+      }
+    }
+
+    // O cursă care a plecat deja nu se mai anulează: ar elibera locuri degeaba și
+    // ar trimite clientului email de anulare pentru o călătorie trecută (un tab
+    // vechi rămas deschis). Aceeași convenție ca în /api/operator/bookings/[id]:
+    // comparăm cu ORA reală de plecare (returul dacă există), nu cu ziua.
+    if (data.status === 'cancelled' && previous.status !== 'cancelled') {
+      const last = previous.returnDate ?? previous.departureDate
+      if (previous.archivedAt || new Date(last) < new Date()) {
+        return NextResponse.json(
+          { success: false, error: 'Cursa a plecat deja — rezervarea nu mai poate fi anulată.' },
+          { status: 400 }
+        )
       }
     }
 

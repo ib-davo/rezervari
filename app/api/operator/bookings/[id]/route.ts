@@ -68,8 +68,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       }
       upd.price = Math.round(p * 100) / 100;
     }
-    // Contact
-    if (typeof e.phone === "string") upd.phone = e.phone.trim();
+    // Contact. Telefonul sub 6 cifre nu produce cheie de dedup (vezi phoneKey),
+    // deci ar dezactiva tăcut protecția de dublură pentru rezervarea asta —
+    // aceeași validare ca la creare.
+    if (typeof e.phone === "string") {
+      const p = e.phone.trim();
+      if (p.replace(/\D/g, "").length < 6) {
+        return NextResponse.json(
+          { success: false, error: "Număr de telefon prea scurt — scrie numărul complet (cu prefix)." },
+          { status: 400 }
+        );
+      }
+      upd.phone = p;
+    }
     if (typeof e.email === "string") upd.email = e.email.trim();
     // Monedă (Anglia £ / Europa €)
     if (e.currency === "EUR" || e.currency === "GBP") upd.currency = e.currency;
