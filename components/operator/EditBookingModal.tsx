@@ -5,6 +5,7 @@ import { Loader2, Trash2, Undo2, X, Armchair } from "lucide-react";
 import type { OperatorBooking } from "./BookingsView";
 import { BusSeatMap } from "@/components/booking/BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
+import type { ActResult } from "@/lib/operatorAct";
 
 // Datele de locuri pe un segment (răspunsul /bookings/[id]/seats). Ocuparea e
 // circuit-aware (vezi lib/operatorSeats) — identică cu harta din panou.
@@ -31,7 +32,7 @@ export function EditBookingModal({
 }: {
   b: OperatorBooking;
   onClose: () => void;
-  onSubmit: (patch: Record<string, unknown>) => Promise<boolean>;
+  onSubmit: (patch: Record<string, unknown>) => Promise<ActResult>;
 }) {
   const initialPassengers = useMemo(() => {
     const firsts = b.firstName.split(",").map((s) => s.trim());
@@ -175,10 +176,12 @@ export function EditBookingModal({
       edit.lastName = kept.map((p) => p.last).join(", ");
       edit.adults = kept.length;
     }
-    const ok = await onSubmit({ edit });
+    const r = await onSubmit({ edit });
     setSaving(false);
-    if (ok) onClose();
-    else setError("Nu s-a putut salva — verifică datele și încearcă din nou.");
+    if (r.ok) onClose();
+    // Mesajul serverului spune exact ce s-a opus (ziua legată de cursă, un loc
+    // ocupat între timp, o dublură pe telefon); genericul e doar plasa de jos.
+    else setError(r.error ?? "Nu s-a putut salva — verifică datele și încearcă din nou.");
   };
 
   const seatChip = (tripId: string, seatNumber: number) => {

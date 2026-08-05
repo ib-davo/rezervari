@@ -7,6 +7,7 @@ import {
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus,
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { ActError, type ActResult } from "@/lib/operatorAct";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
@@ -128,7 +129,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     };
   }, [load, scheduleReload]);
 
-  const act = useCallback(async (id: string, patch: Record<string, unknown>): Promise<boolean> => {
+  const act = useCallback(async (id: string, patch: Record<string, unknown>): Promise<ActResult> => {
     // Optimist: aplicăm local instant; la eșec revenim DOAR cardul afectat
     // (un snapshot pe toată lista ar șterge update-urile concurente reușite
     // de pe alte carduri sau venite prin realtime între timp).
@@ -157,14 +158,20 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // Mesajul serverului contează: „ziua nu se schimbă din Editează",
+        // „locul e ocupat", dublura pe telefon. Înghițit, operatorul rămâne cu
+        // „nu s-a putut salva" și n-are ce face mai departe.
+        const msg = await res.json().then((d) => (typeof d?.error === "string" ? d.error : null)).catch(() => null);
+        throw new ActError(msg);
+      }
       load();
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (err) {
       if (original) {
         setBookings((cur) => cur.map((b) => (b.id === id ? original : b)));
       }
-      return false;
+      return { ok: false, error: err instanceof ActError ? err.message || undefined : undefined };
     }
   }, [bookings, load]);
 
@@ -495,7 +502,7 @@ function BookingCard({
 }: {
   b: OperatorBooking;
   scope: "active" | "archived";
-  onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onAct: (id: string, patch: Record<string, unknown>) => Promise<ActResult>;
   onReload: () => void;
 }) {
   const [rescheduling, setRescheduling] = useState(false);
@@ -691,9 +698,9 @@ function BookingCard({
           b={b}
           onClose={() => setEditOpen(false)}
           onSubmit={async (patch) => {
-            const ok = await onAct(b.id, patch);
-            if (ok) onReload();
-            return ok;
+            const r = await onAct(b.id, patch);
+            if (r.ok) onReload();
+            return r;
           }}
         />
       )}

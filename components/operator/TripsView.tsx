@@ -10,6 +10,7 @@ import {
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { ActError, type ActResult } from "@/lib/operatorAct";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { SeatMapModal } from "@/components/operator/SeatMapModal";
 import type { BusLayout } from "@/lib/adminMock";
@@ -238,12 +239,18 @@ export default function TripsView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // Mesajul serverului contează: „ziua nu se schimbă din Editează",
+        // „locul e ocupat", dublura pe telefon. Înghițit, operatorul rămâne cu
+        // „nu s-a putut salva" și n-are ce face mai departe.
+        const msg = await res.json().then((d) => (typeof d?.error === "string" ? d.error : null)).catch(() => null);
+        throw new ActError(msg);
+      }
       load();
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (err) {
       setGroups(snapshot);
-      return false;
+      return { ok: false, error: err instanceof ActError ? err.message || undefined : undefined };
     }
   }, [groups, load]);
 
@@ -526,7 +533,7 @@ function SkeletonTrips() {
 
 function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
   g: TripGroup;
-  onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onAct: (id: string, patch: Record<string, unknown>) => Promise<ActResult>;
   showDay: boolean;
   buses: BusOption[];
   isSup: boolean;
@@ -837,7 +844,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   showRoute: boolean;
   canAssign: boolean;
   buses: BusOption[];
-  onAct: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onAct: (id: string, patch: Record<string, unknown>) => Promise<ActResult>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
