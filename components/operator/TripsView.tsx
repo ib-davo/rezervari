@@ -850,6 +850,9 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmPaid, setConfirmPaid] = useState(false);
+  // Re-confirmarea unei rezervări ANULATE nu realocă locurile (vezi ruta API) —
+  // fără avertisment, operatorul ar crede că „a dezanulat" și locul s-a întors.
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const cancelled = b.status === "cancelled";
   const state = stateOf(b);
@@ -867,6 +870,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
     setBusy(null);
     setConfirmCancel(false);
     setConfirmPaid(false);
+    setConfirmRestore(false);
   };
 
   return (
@@ -916,13 +920,18 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
           </div>
           {/* O SINGURĂ stare a pasagerului, setată de OPERATOR (mai ales pentru cei
               fără email): Necontactat / Confirmat / Nu răspunde / Anulat / Îmbarcat.
-              Soft — NU eliberează locurile (pentru asta e „Anulează"). Apare mereu
-              în export Excel + PDF. */}
+              „Anulat" = anularea REALĂ (cu confirmare inline) — eliberează locurile,
+              ca butonul „Anulează"; restul stărilor sunt soft. Apare mereu în export
+              Excel + PDF. Pe rândurile anulate forțăm afișajul pe „Anulat":
+              anulările vechi din Acțiuni nu scriau passengerResponse, iar un
+              boardedAt rămas ca urmă istorică ar afișa „Îmbarcat" pe o rezervare
+              anulată. */}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Stare</span>
             <StatusSelect
-              value={state}
+              value={cancelled ? "cancelled" : state}
               readOnly={cancelled}
+              hasEmail={!!(b.email || "").trim()}
               title={b.boardedAt && b.boardedBy ? `Îmbarcat de ${b.boardedBy}` : undefined}
               onChange={(next) => onAct(b.id, statePatch(next, !!b.boardedAt))}
             />
@@ -944,7 +953,7 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
           <Phone className="h-3.5 w-3.5" /> {b.phone}
         </a>
         <button
-          onClick={() => { setOpen((v) => !v); setConfirmCancel(false); setConfirmPaid(false); }}
+          onClick={() => { setOpen((v) => !v); setConfirmCancel(false); setConfirmPaid(false); setConfirmRestore(false); }}
           className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold text-[color:var(--ink-500)] hover:bg-[color:var(--ink-50)]"
         >
           Acțiuni <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -967,9 +976,28 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             </RowBtn>
           )}
           {b.status !== "confirmed" && (
-            <RowBtn busy={busy === "confirm"} onClick={() => run("confirm", { status: "confirmed" })} className="bg-emerald-500 text-white">
-              <Check className="h-3.5 w-3.5" /> Confirmă
-            </RowBtn>
+            cancelled ? (
+              // „Dezanularea" nu întoarce locurile (au fost șterse la anulare și
+              // ruta NU le realocă) — spunem explicit înainte, nu lăsăm operatorul
+              // să descopere pe teren. passengerResponse revine pe „confirmed" în
+              // același request, altfel dropdown-ul rândului reactivat ar rămâne
+              // pe „Anulat" deși rezervarea nu mai e anulată.
+              confirmRestore ? (
+                <span className="inline-flex flex-wrap items-center gap-1.5 rounded-full bg-emerald-50 pl-3 pr-1 py-1 text-xs font-semibold text-emerald-700">
+                  Locurile NU revin automat — alege-le din nou după. Continui?
+                  <RowBtn busy={busy === "confirm"} onClick={() => run("confirm", { status: "confirmed", passengerResponse: "confirmed" })} className="bg-emerald-600 text-white !px-2.5">Da</RowBtn>
+                  <button onClick={() => setConfirmRestore(false)} className="rounded-full px-2 py-1 text-xs font-semibold text-[color:var(--ink-500)] hover:bg-white">Nu</button>
+                </span>
+              ) : (
+                <RowBtn onClick={() => setConfirmRestore(true)} className="bg-emerald-500 text-white">
+                  <Check className="h-3.5 w-3.5" /> Confirmă
+                </RowBtn>
+              )
+            ) : (
+              <RowBtn busy={busy === "confirm"} onClick={() => run("confirm", { status: "confirmed" })} className="bg-emerald-500 text-white">
+                <Check className="h-3.5 w-3.5" /> Confirmă
+              </RowBtn>
+            )
           )}
           {!cancelled && (
             confirmCancel ? (

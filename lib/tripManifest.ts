@@ -85,10 +85,51 @@ export function buildManifestHtml(g: TripGroup): string {
   .totlabel { text-align: right; font-weight: 700; color: #475569; }
   .totval { font-weight: 800; font-size: 15px; color: #0b2653; }
   .foot { margin-top: 16px; font-size: 10px; color: #94a3b8; }
+  /* Bara de navigare de sus — doar pe ecran; foaia se printează fără ea. */
+  .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #0b2653; margin: -18px -22px 14px; padding: 10px 14px; box-shadow: 0 2px 6px rgba(11,38,83,.25); }
+  /* min-height 44px = țintă tactilă decentă pe telefon (operatorii folosesc panoul de pe mobil). */
+  .topbar button { min-height: 44px; border: 0; border-radius: 10px; padding: 0 16px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .topbar .back { background: #fff; color: #0b2653; }
+  .topbar .print { background: #e11e2b; color: #fff; }
+  /* Pagina n-are <meta viewport> (e o foaie A4; cu device-width tabelul de 9
+     coloane s-ar strivi), deci telefonul o randează în viewport-ul clasic de
+     ~980px și micșorează totul la ~40% — cei 44px de mai sus ar deveni ~17pt
+     vizuali, prea mici pentru deget. Pe ecrane tactile scalăm bara invers, ca
+     la zoom-ul implicit butoanele să rămână la ~44pt reali. */
+  @media (hover: none) and (pointer: coarse) {
+    .topbar { padding: 22px 30px; gap: 24px; }
+    .topbar button { min-height: 108px; font-size: 32px; border-radius: 24px; padding: 0 40px; }
+  }
   @page { size: A4 landscape; margin: 12mm; }
-  @media print { body { margin: 0; } }
-</style></head>
+  @media print { body { margin: 0; } .topbar { display: none; } }
+</style>
+<script>
+  // Întoarcerea la panou. history.back() NU e o opțiune: pagina asta e scrisă
+  // cu document.write peste about:blank (window.open("", "_blank") în
+  // TripsView), deci tab-ul n-are NICIO intrare de istoric la care să revină.
+  function inapoiLaPanou() {
+    // 1) window.close() — permis de browsere pentru ferestrele deschise din
+    //    script, exact cazul nostru; închide tab-ul și operatorul rămâne pe
+    //    panoul din tab-ul inițial.
+    window.close();
+    // 2) Unele browsere mobile ignoră totuși close() (ex. tab-ul a fost promovat
+    //    la tab „de sine stătător"). Verificăm după o pauză scurtă — nu imediat,
+    //    ca să nu pornim o navigare care se ia la întrecere cu închiderea — și,
+    //    dacă fereastra e tot deschisă, navigăm la panou. Originea e moștenită
+    //    de la opener, deci calea relativă /panou funcționează.
+    setTimeout(function () {
+      if (!window.closed) window.location.href = "/panou";
+    }, 250);
+  }
+</script></head>
 <body onload="setTimeout(function(){window.print()},250)">
+  <div class="topbar">
+    <button type="button" class="back" onclick="inapoiLaPanou()">← Înapoi la panou</button>
+    <!-- Dialogul de print se deschide automat la încărcare, dar pe telefon
+         operatorul îl închide adesea ca să vadă întâi lista; fără butonul ăsta
+         ar trebui să reîncarce pagina ca să printeze. -->
+    <button type="button" class="print" onclick="window.print()">Printează</button>
+  </div>
   <div class="brand">
     <div class="logo">DAVO <b>GROUP</b></div>
     <div class="tag">Foaie de parcurs</div>
@@ -108,10 +149,10 @@ export function buildManifestHtml(g: TripGroup): string {
         <th>Ruta</th><th class="c">Plată</th><th class="c">Confirmare</th><th class="r">Preț</th><th>Observații</th>
       </tr>
     </thead>
-    <tbody>${body || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px">Nicio rezervare pe această cursă.</td></tr>`}</tbody>
+    <tbody>${body || `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:24px">Nicio rezervare pe această cursă.</td></tr>`}</tbody>
     <tfoot>
       <tr>
-        <td colspan="6" class="totlabel">TOTAL</td>
+        <td colspan="7" class="totlabel">TOTAL</td>
         <td class="r totval">${fmtTotals(totals, "total", "")}</td>
         <td></td>
       </tr>
