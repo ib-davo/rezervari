@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
     const bookingNumber = generateBookingNumber()
 
-    const departureDate = new Date(body.departureDate)
+    let departureDate = new Date(body.departureDate)
     if (Number.isNaN(departureDate.getTime())) {
       return NextResponse.json({ success: false, error: 'Dată plecare invalidă' }, { status: 400 })
     }
@@ -97,15 +97,23 @@ export async function POST(request: NextRequest) {
     // ales o cursă, validăm că locurile alese sunt libere ÎNAINTE de create
     // (race-condition gard: tranzacția de mai jos face check + insert atomic).
     const tripId: string | undefined = typeof body.tripId === 'string' && body.tripId.length > 0 ? body.tripId : undefined
+    const returnTripId: string | undefined =
+      typeof body.returnTripId === 'string' && body.returnTripId.length > 0 ? body.returnTripId : undefined
     const seatNumbers: number[] = Array.isArray(body.seatNumbers)
       ? body.seatNumbers.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0)
       : []
 
     if (tripId) {
-      const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { id: true } })
+      const trip = await prisma.trip.findUnique({ where: { id: tripId }, select: { id: true, departureAt: true } })
       if (!trip) {
         return NextResponse.json({ success: false, error: 'Cursa selectată nu există' }, { status: 400 })
       }
+      // Când există cursă, EA dă data — nu ce a tastat adminul în formular.
+      // Verificarea de dublură citește `booking.departureDate`, iar listele și
+      // harta de locuri citesc `trip.departureAt`; dacă se despart, rezervarea
+      // blochează o zi și e afișată pe alta (bug-ul DAVO-2026-TB23MN). Aceeași
+      // plasă ca în /api/bookings.
+      departureDate = trip.departureAt
       if (seatNumbers.length > 0) {
         // Pe ÎNTREAGA rulare fizică (toate trip-urile autobuzului din ziua aia),
         // nu doar pe trip-ul rutei — vezi lib/runSeats.
@@ -118,6 +126,15 @@ export async function POST(request: NextRequest) {
           )
         }
       }
+    }
+
+    // Aceeași regulă pentru retur: data se derivă din cursă, nu din formular.
+    if (returnTripId) {
+      const ret = await prisma.trip.findUnique({ where: { id: returnTripId }, select: { departureAt: true } })
+      if (!ret) {
+        return NextResponse.json({ success: false, error: 'Cursa retur selectată nu există' }, { status: 400 })
+      }
+      returnDate = ret.departureAt
     }
 
     // Cine creează manual din panoul davo (admin / admin2) — ca panoul
@@ -163,6 +180,9 @@ export async function POST(request: NextRequest) {
         paidAt: paymentStatus === 'paid' ? now : null,
         confirmedAt: status === 'confirmed' ? now : null,
         tripId: tripId ?? null,
+        // Fără legătura asta, returnDate derivată mai sus ar rămâne orfană:
+        // garda de zi din PATCH și harta de locuri citesc returnTripId.
+        returnTripId: returnTripId ?? null,
         // Rezervare manuală din panoul admin davo.
         source: 'admin',
         createdByName,

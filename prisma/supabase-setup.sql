@@ -291,6 +291,23 @@ ALTER TABLE "EmailLog"    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "AdminUser"   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "Settings"    ENABLE ROW LEVEL SECURITY;
 
+-- Tabele apărute DUPĂ scrierea listei de mai sus. Lipseau de aici, deci au rămas
+-- fără RLS în producție, cu granturile implicite Supabase (`anon` și
+-- `authenticated` primesc SELECT/INSERT/UPDATE/DELETE pe tot ce e în `public`) —
+-- adică citibile ȘI scriibile cu cheia anon din bundle-ul browserului.
+-- `Operator` ține `pinHash`-urile panoului, deci era cazul cel mai grav.
+-- Când adaugi un model nou în schema.prisma, adaugă-l ȘI aici.
+ALTER TABLE "Operator"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "Review"          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "FuelEntry"       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "FuelTank"        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "MaintenanceItem" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "MaintenanceLog"  ENABLE ROW LEVEL SECURITY;
+
+-- Tabela de evidență a migrărilor, creată de Prisma la prima migrare — primește
+-- și ea granturile implicite pentru `anon`, deci se activează după ce există.
+-- ALTER TABLE "_prisma_migrations" ENABLE ROW LEVEL SECURITY;
+
 
 -- ===== 3. Baseline pentru Prisma migrations =================================
 --

@@ -142,10 +142,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const departureDate = new Date(body.departureDate)
-    const returnDate = body.returnDate ? new Date(body.returnDate) : null
+    // Telefonul e singurul identificator pe care îl avem mereu — pe el se face
+    // verificarea de dublură (lib/duplicatePhone). Un număr cu sub 6 cifre nu
+    // identifică pe nimeni: phoneKey returnează cheie goală și dedup-ul se
+    // dezactivează TĂCUT pentru rezervarea aia. Deci refuzăm de la intrare,
+    // și pentru operator, și pentru site — 4 cifre nu sunt un telefon oricum.
+    const phoneDigits = String(body.phone).replace(/\D/g, '')
+    if (phoneDigits.length < 6) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Număr de telefon invalid: are sub 6 cifre. Scrie numărul complet al clientului ' +
+            '(ex. 060123456 sau +373 60 123 456) — fără el nu putem verifica rezervările duble.',
+        },
+        { status: 400 }
+      )
+    }
+
+    let departureDate = new Date(body.departureDate)
+    let returnDate = body.returnDate ? new Date(body.returnDate) : null
     if (Number.isNaN(departureDate.getTime()) || (returnDate && Number.isNaN(returnDate.getTime()))) {
       return NextResponse.json({ success: false, error: 'Dată invalidă' }, { status: 400 })
+    }
+
+    const tripId: string | undefined = body.tripId || undefined
+    const returnTripId: string | undefined = body.returnTripId || undefined
+
+    // Când există cursă, ea dă data — nu ce a trimis clientul. Cele două trebuie
+    // să rămână lipite: verificarea de dublură citește `booking.departureDate`,
+    // iar listele, harta de locuri și manifestele citesc `trip.departureAt`. Dacă
+    // se despart, rezervarea blochează o zi și e afișată pe alta — operatorul
+    // primește un avertisment despre o rezervare pe care n-o găsește nicăieri
+    // (bug-ul DAVO-2026-TB23MN). Panoul le trimite deja sincronizate; asta e plasa
+    // pentru davo.md public și pentru orice alt client al acestui API.
+    if (tripId || returnTripId) {
+      const ids = [tripId, returnTripId].filter((x): x is string => !!x)
+      const trips = await prisma.trip.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, departureAt: true },
+      })
+      const out = trips.find((t) => t.id === tripId)
+      const ret = trips.find((t) => t.id === returnTripId)
+      if (out) departureDate = out.departureAt
+      if (ret) returnDate = ret.departureAt
     }
 
     // Un pasager = O rezervare pe zi. Verificăm ÎNAINTE de validarea locurilor
@@ -159,8 +199,6 @@ export async function POST(request: NextRequest) {
       if (dup && !allowedDuplicate(dup, operator, body)) return duplicateResponse(dup, operator)
     }
 
-    const tripId: string | undefined = body.tripId || undefined
-    const returnTripId: string | undefined = body.returnTripId || undefined
     const seatNumbers: number[] = Array.isArray(body.seatNumbers)
       ? body.seatNumbers.map((n: unknown) => Number(n)).filter((n: number) => !Number.isNaN(n))
       : []

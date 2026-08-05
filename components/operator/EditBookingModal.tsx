@@ -371,7 +371,11 @@ export function EditBookingModal({
           </label>
         </div>
 
-        {/* Date — se schimbă doar ziua, ora cursei rămâne */}
+        {/* Date — se schimbă doar ziua, ora cursei rămâne.
+            Rezervarea legată de o cursă are ziua fixată de cursă: mutarea pe altă
+            zi trebuie să mute și cursa, și locurile, și reminderele — asta face
+            „Reprogramare”. Schimbată doar aici, rezervarea ar bloca o zi și ar fi
+            afișată pe alta (invizibilă pentru cine caută dublura). */}
         <div className="mt-4 grid gap-2 md:grid-cols-2">
           <label className="block">
             <span className="text-[11px] font-bold uppercase tracking-widest text-[color:var(--ink-500)]">Data plecării</span>
@@ -379,7 +383,8 @@ export function EditBookingModal({
               type="date"
               value={depDate}
               onChange={(e) => setDepDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+              disabled={!!b.tripId}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none disabled:bg-[color:var(--ink-100)] disabled:text-[color:var(--ink-500)] disabled:cursor-not-allowed"
             />
           </label>
           <label className="block">
@@ -388,9 +393,15 @@ export function EditBookingModal({
               type="date"
               value={retDate}
               onChange={(e) => setRetDate(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+              disabled={!!b.returnTripId}
+              className="mt-1 w-full rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none disabled:bg-[color:var(--ink-100)] disabled:text-[color:var(--ink-500)] disabled:cursor-not-allowed"
             />
           </label>
+          {(b.tripId || b.returnTripId) && (
+            <p className="md:col-span-2 text-xs text-[color:var(--ink-500)]">
+              Ziua e dată de cursă. Ca s-o muți, închide și folosește <strong>Reprogramare</strong> — mută și cursa, și locurile, și reminderele.
+            </p>
+          )}
         </div>
 
         <div className="mt-4">

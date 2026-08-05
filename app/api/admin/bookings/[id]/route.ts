@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { enqueueForBooking, cancelForBooking, sendCancellationNow } from '@/lib/emailQueue'
+import { enqueueForBooking, cancelForBooking, sendCancellationNow, enqueueRemindersOnly } from '@/lib/emailQueue'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 
 // Whitelist explicit — admin nu poate seta id/createdAt/relații etc.
@@ -60,7 +60,14 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
 
-    const previous = await prisma.booking.findUnique({ where: { id } })
+    const previous = await prisma.booking.findUnique({
+      where: { id },
+      include: {
+        // Ziua cursei reale — editarea datei nu are voie să plece de lângă ea.
+        trip: { select: { departureAt: true } },
+        returnTrip: { select: { departureAt: true } },
+      },
+    })
     if (!previous) {
       return NextResponse.json({ success: false, error: 'Booking not found' }, { status: 404 })
     }
@@ -72,6 +79,50 @@ export async function PATCH(
         if (v !== null || type === 'string-or-null' || type === 'date-or-null') {
           data[key] = v
         }
+      }
+    }
+
+    // O rezervare legată de o cursă are DOUĂ zile care trebuie să rămână identice:
+    // `departureDate` (citită de verificarea de dublură) și `trip.departureAt`
+    // (citită de liste, harta de locuri și manifeste). Editarea din admin schimbă
+    // doar câmpul de pe rezervare — nu și cursa, locurile sau reminderele — deci
+    // o schimbare de ZI ar despărți cele două: rezervarea ar bloca o zi și ar fi
+    // afișată pe alta, invizibilă pentru operator (bug-ul DAVO-2026-TB23MN).
+    // Blocăm doar schimbarea REALĂ de zi — formularul retrimite mereu data curentă,
+    // iar o editare de preț pe un rând vechi deja desincronizat trebuie să treacă.
+    const utcDayOf = (d: Date) => d.toISOString().slice(0, 10)
+    const dayMoveError = (tripDay: string) =>
+      NextResponse.json(
+        {
+          success: false,
+          error: `Rezervarea e legată de cursa din ${tripDay.split('-').reverse().join('.')}. Ziua nu se schimbă din editare — mut-o pe altă cursă (reprogramare), ca să se mute și locurile, și reminderele.`,
+        },
+        { status: 400 }
+      )
+
+    // Pe rezervările FĂRĂ cursă ziua se poate muta — dar reminderele erau
+    // calculate pe data veche, deci trebuie reprogramate după salvare
+    // (aceeași plasă ca în /api/operator/bookings/[id]).
+    let dayChangedNoTrip = false
+
+    if (data.departureDate instanceof Date && utcDayOf(data.departureDate) !== utcDayOf(previous.departureDate)) {
+      if (previous.tripId) {
+        return dayMoveError(utcDayOf(previous.trip?.departureAt ?? previous.departureDate))
+      }
+      dayChangedNoTrip = true
+    }
+    if ('returnDate' in data) {
+      if (previous.returnTripId) {
+        const retDay = utcDayOf(previous.returnTrip?.departureAt ?? previous.returnDate ?? previous.departureDate)
+        // Și ștergerea returului e o „mutare" — locurile de pe cursa retur ar rămâne ocupate.
+        if (data.returnDate === null && previous.returnDate) return dayMoveError(retDay)
+        if (data.returnDate instanceof Date && (!previous.returnDate || utcDayOf(data.returnDate) !== utcDayOf(previous.returnDate))) {
+          return dayMoveError(retDay)
+        }
+      } else if (data.returnDate === null && previous.returnDate) {
+        dayChangedNoTrip = true
+      } else if (data.returnDate instanceof Date && (!previous.returnDate || utcDayOf(data.returnDate) !== utcDayOf(previous.returnDate))) {
+        dayChangedNoTrip = true
       }
     }
 
@@ -103,27 +154,59 @@ export async function PATCH(
       })
     }
 
-    const booking = await prisma.booking.update({
-      where: { id },
-      data,
-    })
-
-    // Tranziție de status → acțiuni automate pe coada de emailuri.
-    if (data.status && data.status !== previous.status) {
-      if (data.status === 'confirmed') {
-        await prisma.booking.update({
-          where: { id },
-          data: { confirmedAt: previous.confirmedAt ?? new Date() },
-        })
-        await autoLinkTripAndClient(id)
-        await enqueueForBooking(id)
-      } else if (data.status === 'cancelled') {
-        // Anularea pleacă IMEDIAT, nu la cron-ul zilnic.
-        await cancelForBooking(id, false)
-        await sendCancellationNow(id).catch((e) => console.error('sendCancellationNow:', e))
+    // Anulare: tranziție ATOMICĂ — doar UN request câștigă trecerea în cancelled
+    // (updateMany cu gardă pe status), ca două tab-uri/admini concurenți să nu
+    // ruleze efectele secundare (email + eliberare locuri) de două ori. Aceeași
+    // convenție ca în /api/operator/bookings/[id].
+    let cancelledNow = false
+    if (data.status === 'cancelled') {
+      const r = await prisma.booking.updateMany({
+        where: { id, status: { not: 'cancelled' } },
+        data,
+      })
+      cancelledNow = r.count > 0
+      if (!cancelledNow) {
+        // Rezervarea era DEJA anulată (alt tab a câștigat cursa, sau adminul
+        // editează o rezervare anulată — modalul trimite mereu status-ul curent).
+        // Câmpurile editate (preț, telefon...) se salvează totuși; doar efectele
+        // anulării (email + eliberare locuri) nu se mai repetă.
+        await prisma.booking.update({ where: { id }, data })
       }
+    } else {
+      await prisma.booking.update({ where: { id }, data })
     }
 
+    // Ziua s-a mutat pe o rezervare fără cursă (singurul caz care trece de gardă):
+    // reminderele erau programate pe data veche, deci ar pleca la ziua greșită.
+    // Nu pe rezervări anulate — acolo nu mai trebuie niciun reminder.
+    if (dayChangedNoTrip && !cancelledNow && data.status !== 'cancelled' && previous.status !== 'cancelled') {
+      await prisma.emailJob
+        .updateMany({
+          where: { bookingId: id, type: { in: ['reminder_24h', 'reminder_2h', 'review_request'] }, status: { in: ['scheduled', 'queued'] } },
+          data: { status: 'cancelled' },
+        })
+        .catch(() => {})
+      await enqueueRemindersOnly(id).catch((e) => console.error('enqueueReminders after edit:', e))
+    }
+
+    // Tranziție de status → acțiuni automate pe coada de emailuri.
+    if (cancelledNow) {
+      // Fără asta, locurile rezervării anulate rămân ocupate pe hartă și blochează
+      // vânzarea lor — aceeași eliberare ca pe calea operatorului.
+      await prisma.seatBooking.deleteMany({ where: { bookingId: id } })
+      // Anularea pleacă IMEDIAT, nu la cron-ul zilnic.
+      await cancelForBooking(id, false)
+      await sendCancellationNow(id).catch((e) => console.error('sendCancellationNow:', e))
+    } else if (data.status === 'confirmed' && data.status !== previous.status) {
+      await prisma.booking.update({
+        where: { id },
+        data: { confirmedAt: previous.confirmedAt ?? new Date() },
+      })
+      await autoLinkTripAndClient(id)
+      await enqueueForBooking(id)
+    }
+
+    const booking = await prisma.booking.findUnique({ where: { id } })
     return NextResponse.json({ success: true, booking })
   } catch (error) {
     console.error('Admin update booking error:', error)

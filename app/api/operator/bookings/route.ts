@@ -81,15 +81,22 @@ export async function GET(req: NextRequest) {
   // reale (tripId → Trip.bus) → altfel din program (busPlateForRun pe dată + țări).
   // Ca arhiva să poată fi grupată/filtrată pe autocar, nu doar pasageri împrăștiați.
   const manualIds = [...new Set(bookings.map((b) => b.manualBusId).filter((x): x is string => !!x))];
-  const tripIds = [...new Set(bookings.map((b) => b.tripId).filter((x): x is string => !!x))];
+  // Și returTrip-urile: expunem ziua reală a AMBELOR curse legate (vezi mai jos).
+  const tripIds = [...new Set(bookings.flatMap((b) => [b.tripId, b.returnTripId]).filter((x): x is string => !!x))];
   const [manualBuses, trips] = await Promise.all([
     manualIds.length ? prisma.bus.findMany({ where: { id: { in: manualIds } }, select: { id: true, plate: true } }) : Promise.resolve([]),
-    tripIds.length ? prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, bus: { select: { plate: true } } } }) : Promise.resolve([]),
+    tripIds.length ? prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, departureAt: true, bus: { select: { plate: true } } } }) : Promise.resolve([]),
   ]);
   const plateById = new Map<string, string>(manualBuses.map((b) => [b.id, b.plate]));
   const plateByTrip = new Map<string, string>(trips.filter((t) => t.bus).map((t) => [t.id, t.bus!.plate]));
+  const depByTrip = new Map<string, string>(trips.map((t) => [t.id, t.departureAt.toISOString()]));
   const withCoach = bookings.map((b) => ({
     ...b,
+    // Ziua REALĂ a cursei legate: booking.departureDate poate fi desincronizat de
+    // trip.departureAt (baza e scrisă și de davo.md public + importuri, fără
+    // gardurile locale) — UI-ul compară cele două și semnalează anomalia.
+    tripDepartureAt: b.tripId ? depByTrip.get(b.tripId) ?? null : null,
+    returnTripDepartureAt: b.returnTripId ? depByTrip.get(b.returnTripId) ?? null : null,
     coach:
       (b.manualBusId && plateById.get(b.manualBusId)) ||
       (b.tripId && plateByTrip.get(b.tripId)) ||

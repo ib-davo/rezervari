@@ -78,6 +78,30 @@ function cityOnly(s: string): string {
   return s.split(",")[0].trim();
 }
 
+// Ziua reală a cursei legate, expusă de API pe lângă câmpurile OperatorBooking.
+// (Tipul de bază e al BookingsView — îl extindem local, nu-l modificăm acolo.)
+type BookingWithTripDay = OperatorBooking & {
+  tripDepartureAt?: string | null;
+  returnTripDepartureAt?: string | null;
+};
+
+// Desincronizare RARĂ dar reală: booking.departureDate pe o zi, cursa legată pe
+// alta. Gardurile din acest repo nu mai lasă să se întâmple local, dar aceeași
+// bază e scrisă și de davo.md public + scripturi de import. Dedup-ul pe telefon
+// citește data rezervării, listele citesc ziua cursei — deci rezervarea blochează
+// o zi și e afișată pe alta. Comparăm ziua UTC (același tăiș ca dedup-ul).
+function tripDayMismatch(b: BookingWithTripDay): { bookingDay: string; tripDay: string } | null {
+  const day = (iso: string) => iso.slice(0, 10);
+  if (b.tripId && b.tripDepartureAt && day(b.departureDate) !== day(b.tripDepartureAt))
+    return { bookingDay: day(b.departureDate), tripDay: day(b.tripDepartureAt) };
+  if (b.returnTripId && b.returnTripDepartureAt && b.returnDate && day(b.returnDate) !== day(b.returnTripDepartureAt))
+    return { bookingDay: day(b.returnDate), tripDay: day(b.returnTripDepartureAt) };
+  return null;
+}
+function roDay(utcDay: string): string {
+  return utcDay.split("-").reverse().join(".");
+}
+
 // Cursa e ÎN TRAFIC: a plecat, dar încă n-a ajuns. Un drum Moldova↔EU ține 28–40h,
 // deci „ziua trecută" nu înseamnă „gata" — autocarul duce pasagerii chiar acum și
 // operatorul trebuie să-i aibă în față. Fără sosire cunoscută (rezervări fără cursă
@@ -822,6 +846,8 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   const [editOpen, setEditOpen] = useState(false);
   const cancelled = b.status === "cancelled";
   const state = stateOf(b);
+  // Data rezervării ≠ ziua cursei legate — anomalie rară scrisă din afara panoului.
+  const mismatch = tripDayMismatch(b as BookingWithTripDay);
   const assignBus = async (busId: string) => {
     setBusy("bus");
     await onAct(b.id, { manualBusId: busId || null });
@@ -847,6 +873,14 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             {seats.length > 0 && (
               <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-[color:var(--navy-900)]">
                 <Armchair className="h-3 w-3 text-[color:var(--ink-400)]" /> {seats.join(", ")}
+              </span>
+            )}
+            {mismatch && (
+              <span
+                title={`Data rezervării (${roDay(mismatch.bookingDay)}) diferă de ziua cursei (${roDay(mismatch.tripDay)}). Rezervarea apare aici pe cursa reală, dar blocajul de dubluri o numără pe ${roDay(mismatch.bookingDay)} — corectează data prin Reprogramare.`}
+                className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-inset ring-amber-200"
+              >
+                <AlertTriangle className="h-3 w-3" /> dată ≠ cursă
               </span>
             )}
           </div>

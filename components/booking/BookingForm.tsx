@@ -21,6 +21,7 @@ import {
   Phone,
   Info,
   Search,
+  Copy,
 } from "lucide-react";
 import { destinations, moldovanCities, contactInfo, mdCitiesFor, mdStopOffset } from "@/lib/data";
 import { seatSurcharge } from "@/lib/pricing";
@@ -196,6 +197,12 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // tăcut exact dublura pe care o blocăm.
   const [dup, setDup] = useState<{ key: string; message: string } | null>(null);
   const [dupOkFor, setDupOkFor] = useState<string | null>(null);
+  // Numărul rezervării care blochează. Serverul îl trimite doar operatorilor (pe
+  // site rămâne ascuns). Căutarea din Active merge pe numărul rezervării ȘI ignoră
+  // ziua selectată, deci copiat acolo o găsește oriunde ar fi — fără el, operatorul
+  // rămâne cu un avertisment despre o rezervare pe care n-are cum s-o deschidă.
+  const [dupRef, setDupRef] = useState<string | null>(null);
+  const [dupRefCopied, setDupRefCopied] = useState(false);
   const [consent, setConsent] = useState(false);
   const [payMethod, setPayMethod] = useState<"card" | "cash">("card");
   // Preț manual (doar operator/embedded) — suprascrie totalul calculat.
@@ -222,6 +229,31 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const dupKey = `${person.phone.trim()}|${person.firstName.trim().toLowerCase()}|${person.lastName.trim().toLowerCase()}|${date}`;
   const dupWarning = dup && dup.key === dupKey ? dup.message : null;
   const dupConfirmed = dupOkFor === dupKey;
+
+  // Avertismentul spune ce rezervare blochează; asta o face și găsibilă.
+  const dupRefAction = dupRef ? (
+    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+      <button
+        type="button"
+        onClick={() => {
+          navigator.clipboard?.writeText(dupRef).then(
+            () => {
+              setDupRefCopied(true);
+              setTimeout(() => setDupRefCopied(false), 2000);
+            },
+            () => {}
+          );
+        }}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-current/30 bg-white px-2.5 py-1.5 text-xs font-bold tracking-wide hover:bg-black/5 transition-colors"
+      >
+        <Copy className="h-3.5 w-3.5" />
+        {dupRefCopied ? "Copiat" : dupRef}
+      </button>
+      <span className="text-xs opacity-80">
+        caut-o în „Active” — căutarea o găsește indiferent de ziua selectată
+      </span>
+    </div>
+  ) : null;
 
   const [sender, setSender] = useState({
     name: "",
@@ -681,6 +713,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      setDupRef(typeof data?.duplicate?.bookingNumber === "string" ? data.duplicate.bookingNumber : null);
       if (data.success) setResult(data.booking);
       else if (data.duplicate?.canOverride) {
         // Alt nume pe același telefon: nu e o eroare, e o verificare. Arătăm
@@ -973,7 +1006,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
               {submitError && (
                 <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                   <Info className="h-5 w-5 shrink-0 mt-0.5" />
-                  <div>{submitError}</div>
+                  <div>
+                    {submitError}
+                    {dupRefAction}
+                  </div>
                 </div>
               )}
 
@@ -981,7 +1017,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                 <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
                   <div className="flex items-start gap-3">
                     <Info className="h-5 w-5 shrink-0 mt-0.5" />
-                    <div className="font-medium leading-relaxed">{dupWarning}</div>
+                    <div>
+                      <div className="font-medium leading-relaxed">{dupWarning}</div>
+                      {dupRefAction}
+                    </div>
                   </div>
                   <label className="mt-3 flex items-start gap-3 cursor-pointer rounded-lg border border-amber-300 bg-white p-3">
                     <input

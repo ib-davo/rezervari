@@ -41,7 +41,15 @@ export const BOOKING_SELECT = {
   seatBookings: { select: { seatNumber: true, tripId: true }, orderBy: { seatNumber: "asc" as const } },
 } as const;
 
-export type BookingRow = Awaited<ReturnType<typeof loadBookings>>[number];
+// Peste rândul din DB expunem și ziua REALĂ a cursei legate (dus/retur). Baza e
+// scrisă și de davo.md public + scripturi de import, care nu trec prin gardurile
+// din acest repo — dacă booking.departureDate se desincronizează de trip.departureAt,
+// UI-ul trebuie să poată compara și să arate anomalia, nu s-o descopere operatorul
+// abia la un avertisment de dublură.
+export type BookingRow = Awaited<ReturnType<typeof loadBookings>>[number] & {
+  tripDepartureAt?: string | null;
+  returnTripDepartureAt?: string | null;
+};
 
 export type TripGroupData = {
   kind: "trip" | "loose" | "empty";
@@ -174,6 +182,13 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
       })
     : [];
   const tripMap = new Map(trips.map((t) => [t.id, t]));
+
+  // Ziua reală a cursei pe fiecare rezervare — vezi comentariul de la BookingRow.
+  const rows: BookingRow[] = bookings.map((b) => ({
+    ...b,
+    tripDepartureAt: b.tripId ? tripMap.get(b.tripId)?.departureAt.toISOString() ?? null : null,
+    returnTripDepartureAt: b.returnTripId ? tripMap.get(b.returnTripId)?.departureAt.toISOString() ?? null : null,
+  }));
 
   const manualBusIds = [...new Set(bookings.map((b) => b.manualBusId).filter((x): x is string => !!x))];
   const manualBuses = manualBusIds.length
@@ -350,7 +365,7 @@ export async function buildTripGroups(): Promise<{ groups: TripGroupData[]; cale
     g.bookings.push(b);
   };
 
-  for (const b of bookings) {
+  for (const b of rows) {
     placeLeg(b, "dep");
     placeLeg(b, "ret");
   }

@@ -64,6 +64,17 @@ export type DuplicateBooking = {
   source: string;
   createdByName: string | null;
   seats: number[];
+  /** placa autocarului pe care sunt locurile — în aceeași zi pleacă mai multe
+   *  autocare, deci „loc 10" fără plăcuță trimite operatorul la harta greșită. */
+  busPlate: string | null;
+  /** ziua reală a cursei de care e legată rezervarea. Pe rândurile vechi poate
+   *  diferi de `departureDate`; atunci mesajul trebuie s-o spună, altfel omul e
+   *  căutat în ziua în care nu e afișat. */
+  tripDay: Date | null;
+  /** ziua din cererea nouă pe care a căzut potrivirea (dus sau retur) */
+  matchedDate: Date;
+  /** potrivirea e pe RETURUL rezervării existente, nu pe plecare */
+  matchedOnReturn: boolean;
   /** true = ACELAȘI om, înscris a doua oară (blocaj total).
    *  false = alt nume pe același telefon (familie) — operatorul poate confirma. */
   samePerson: boolean;
@@ -149,9 +160,20 @@ export async function findDuplicateByPhone(
       source: true,
       createdByName: true,
       createdAt: true,
-      seatBookings: { select: { seatNumber: true } },
+      // Locurile vin cu cursa lor: în aceeași zi pleacă mai multe autocare, iar
+      // „loc 10" fără autocar (și fără ziua cursei) e exact ce l-a trimis pe
+      // operator să caute pe harta greșită.
+      seatBookings: {
+        select: {
+          seatNumber: true,
+          trip: { select: { departureAt: true, bus: { select: { plate: true } } } },
+        },
+      },
+      trip: { select: { departureAt: true, bus: { select: { plate: true } } } },
     },
-    orderBy: { createdAt: "asc" },
+    // `desc`: dacă vreodată se atinge plafonul, tăiem rezervările vechi, nu pe
+    // cele proaspete — dublura pe care o căutăm e mai degrabă cea de acum.
+    orderBy: { createdAt: "desc" },
     take: 500,
   });
 
@@ -167,6 +189,16 @@ export async function findDuplicateByPhone(
   const hit = samePhone.find((b) => matchOf(b) !== null) ?? samePhone[0];
   const matched = matchOf(hit);
 
+  // Cursa de care e legată rezervarea: preferăm cursa locurilor (acolo stă omul
+  // pe hartă), altfel cursa rezervării.
+  const tripInfo = hit.seatBookings.find((s) => s.trip)?.trip ?? hit.trip ?? null;
+
+  // Potrivirea a căzut pe plecare sau pe retur? Fereastra de căutare le acceptă
+  // pe amândouă, dar mesajul trebuie să spună ZIUA care a declanșat blocajul —
+  // altfel arată o dată care n-are legătură cu ce tocmai a cerut operatorul.
+  const inDays = (d: Date | null) => !!d && days.some((w) => d >= w.start && d < w.end);
+  const matchedOnReturn = !inDays(hit.departureDate) && inDays(hit.returnDate);
+
   return {
     bookingNumber: hit.bookingNumber,
     firstName: hit.firstName,
@@ -180,6 +212,10 @@ export async function findDuplicateByPhone(
     source: hit.source,
     createdByName: hit.createdByName,
     seats: [...new Set(hit.seatBookings.map((s) => s.seatNumber))].sort((a, b) => a - b),
+    busPlate: tripInfo?.bus?.plate ?? null,
+    tripDay: tripInfo?.departureAt ?? null,
+    matchedDate: (matchedOnReturn ? hit.returnDate : hit.departureDate) ?? hit.departureDate,
+    matchedOnReturn,
     samePerson: matched !== null,
     matchedName: matched,
   };
@@ -189,20 +225,30 @@ export async function findDuplicateByPhone(
 // trebuie ca s-o găsească în listă (număr, cine, locuri, cine a făcut-o).
 function existingBookingLine(dup: DuplicateBooking): string {
   const who = displayPassengerNames(dup.firstName, dup.lastName);
-  const seats = dup.seats.length ? `, loc ${dup.seats.join(", ")}` : "";
+  // Locul singur nu ajunge: în aceeași zi pleacă mai multe autocare, deci spunem
+  // și pe care e. Iar dacă rezervarea stă pe cursa altei zile (rânduri vechi,
+  // dinainte de sincronizarea zi-cursă), o spunem explicit — altfel operatorul o
+  // caută în ziua din avertisment, unde nu e afișată.
+  const onBus = dup.busPlate ? ` pe ${dup.busPlate}` : "";
+  const seats = dup.seats.length ? `, loc ${dup.seats.join(", ")}${onBus}` : "";
+  const otherDay =
+    dup.tripDay && formatDay(dup.tripDay) !== formatDay(dup.matchedDate)
+      ? `, pe cursa din ${formatDay(dup.tripDay)}`
+      : "";
   const by = dup.createdByName
     ? `, făcută de ${dup.createdByName}`
     : dup.source === "site"
       ? ", făcută de client pe site"
       : "";
-  return `${dup.bookingNumber}${who ? ` — ${who}` : ""} (${dup.departureCity} → ${dup.arrivalCity}${seats})${by}`;
+  return `${dup.bookingNumber}${who ? ` — ${who}` : ""} (${dup.departureCity} → ${dup.arrivalCity}${seats}${otherDay})${by}`;
 }
 
 // Mesajul pentru OPERATOR — două situații complet diferite:
 //  • același om, a doua oară → BLOCAJ (exact bug-ul: a sunat doi operatori);
 //  • alt nume pe același telefon → familie, se poate continua cu confirmare.
 export function duplicateMessageForOperator(dup: DuplicateBooking): string {
-  const day = formatDay(dup.departureDate);
+  // Ziua care a declanșat blocajul — poate fi returul rezervării existente.
+  const day = `${formatDay(dup.matchedDate)}${dup.matchedOnReturn ? " (returul ei)" : ""}`;
   if (dup.samePerson) {
     return (
       `${displayPassengerNames(dup.firstName, dup.lastName)} e DEJA rezervat pe ${day}, pe numărul ${dup.phone}: ` +
@@ -223,7 +269,7 @@ export function duplicateMessageForOperator(dup: DuplicateBooking): string {
 // multe locuri într-o singură rezervare.
 export function duplicateMessagePublic(dup: DuplicateBooking): string {
   return (
-    `Există deja o rezervare pe acest număr de telefon pentru ${formatDay(dup.departureDate)}. ` +
+    `Există deja o rezervare pe acest număr de telefon pentru ${formatDay(dup.matchedDate)}. ` +
     `Pentru mai multe persoane alege mai multe locuri într-o singură rezervare, ` +
     `sau sună-ne ca să modificăm rezervarea existentă.`
   );

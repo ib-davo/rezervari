@@ -3,8 +3,19 @@ import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { cancelForBooking, enqueueRemindersOnly, sendCancellationNow } from "@/lib/emailQueue";
 import { seatDataForBooking } from "@/lib/operatorSeats";
+import { findDuplicateByPhone, duplicateMessageForOperator, phoneKey, passengerKeys, type DuplicateBooking } from "@/lib/duplicatePhone";
 
 export const dynamic = "force-dynamic";
+
+// Verificarea de dublură de dinaintea tranzacției lasă o fereastră (validarea
+// locurilor face între timp propriile interogări) în care o salvare concurentă
+// poate strecura același om. Ca la creare (/api/bookings), recontrolăm în
+// tranzacție; eroarea o aruncăm ca să anulăm scrierile și o traducem afară în 409.
+class DuplicatePhoneEditError extends Error {
+  constructor(public dup: DuplicateBooking) {
+    super("duplicate-phone");
+  }
+}
 
 // Operatorul poate confirma / anula manual + marca plata. Statutul se vede instant
 // și pe davo (aceeași tabelă Booking). passengerResponse rămâne sursa din email.
@@ -25,7 +36,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const e = body.edit as Record<string, unknown>;
     const booking = await prisma.booking.findUnique({
       where: { id },
-      include: { seatBookings: { select: { id: true, tripId: true, seatNumber: true } } },
+      include: {
+        seatBookings: { select: { id: true, tripId: true, seatNumber: true } },
+        // Ziua cursei reale — editarea datei nu are voie să plece de lângă ea.
+        trip: { select: { departureAt: true } },
+        returnTrip: { select: { departureAt: true } },
+      },
     });
     if (!booking) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
     if (booking.archivedAt) return NextResponse.json({ success: false, error: "Rezervarea e arhivată" }, { status: 400 });
@@ -65,17 +81,89 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (!m) return null;
       return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], base.getUTCHours(), base.getUTCMinutes(), 0));
     };
+    const utcDayOf = (d: Date) => d.toISOString().slice(0, 10);
+
+    // Rezervarea legată de o cursă are DOUĂ zile care trebuie să rămână aceeași:
+    // `departureDate` (pe care o citește verificarea de dublură) și `trip.departureAt`
+    // (pe care o citesc listele, harta de locuri și manifestele). Editarea schimbă
+    // doar câmpul de pe rezervare — nu și cursa, locurile sau reminderele. Dacă
+    // le-am lăsa să se despartă, rezervarea ar bloca o zi și ar fi afișată pe alta,
+    // invizibilă pentru operatorul care caută dublura (bug-ul DAVO-2026-TB23MN:
+    // blocată pe 07.08, afișată pe cursa din 06.08). Mutarea pe altă zi are propria
+    // cale — Reprogramare — care mută cursa, locurile, reminderele și anunță clientul.
+    const dayMoveError = (tripDay: string) =>
+      NextResponse.json(
+        {
+          success: false,
+          error: `Rezervarea e pe cursa din ${tripDay.split("-").reverse().join(".")}. Ziua nu se schimbă din „Editează” — folosește „Reprogramare”, care mută și cursa, și locurile, și reminderele.`,
+        },
+        { status: 400 }
+      );
+
+    let dayChanged = false;
     if (typeof e.departureDate === "string" && e.departureDate) {
       const nd = setDay(e.departureDate, booking.departureDate);
       if (!nd) return NextResponse.json({ success: false, error: "Dată plecare invalidă" }, { status: 400 });
+      // Doar o schimbare REALĂ de zi e refuzată — modalul retrimite mereu data
+      // curentă, iar o editare de preț pe o rezervare deja desincronizată (rânduri
+      // vechi) trebuie să rămână posibilă.
+      if (utcDayOf(nd) !== utcDayOf(booking.departureDate)) {
+        if (booking.trip) return dayMoveError(utcDayOf(booking.trip.departureAt));
+        dayChanged = true;
+      }
       upd.departureDate = nd;
     }
     if ("returnDate" in e) {
-      if (!e.returnDate) upd.returnDate = null;
-      else if (typeof e.returnDate === "string") {
+      if (!e.returnDate) {
+        if (booking.returnTrip && booking.returnDate) return dayMoveError(utcDayOf(booking.returnTrip.departureAt));
+        if (booking.returnDate) dayChanged = true;
+        upd.returnDate = null;
+      } else if (typeof e.returnDate === "string") {
         const nd = setDay(e.returnDate, booking.returnDate ?? booking.departureDate);
         if (!nd) return NextResponse.json({ success: false, error: "Dată retur invalidă" }, { status: 400 });
+        if (!booking.returnDate || utcDayOf(nd) !== utcDayOf(booking.returnDate)) {
+          if (booking.returnTrip) return dayMoveError(utcDayOf(booking.returnTrip.departureAt));
+          dayChanged = true;
+        }
         upd.returnDate = nd;
+      }
+    }
+
+    // ===== Dublură pe telefon (aceeași verificare ca la CREARE) =====
+    // Editarea poate schimba telefonul, numele sau — pe rezervările fără cursă —
+    // ziua. Oricare din ele poate transforma o rezervare curată în exact dublura
+    // pe care crearea o blochează (același om, înscris a doua oară). Fără
+    // re-verificare, editarea era poarta tăcută de ocolire a blocajului.
+    // Rulăm DOAR când unul din cele trei chiar se schimbă: rezervările vechi cu
+    // dubluri pre-existente trebuie să rămână editabile la preț/adresă/locuri.
+    let dupCheck: Parameters<typeof findDuplicateByPhone>[1] | null = null;
+    if (booking.type === "passenger") {
+      const newPhone = typeof upd.phone === "string" ? upd.phone : booking.phone;
+      const newFirst = typeof upd.firstName === "string" ? upd.firstName : booking.firstName;
+      const newLast = typeof upd.lastName === "string" ? upd.lastName : booking.lastName;
+      // Comparăm pe CHEI, nu pe text brut: „+373 60..." vs „060..." și
+      // „ion popescu" vs „Popescu Ion" sunt același telefon / același om.
+      const phoneChanged = phoneKey(newPhone) !== phoneKey(booking.phone);
+      const nameChanged =
+        passengerKeys(newFirst, newLast).sort().join("|") !==
+        passengerKeys(booking.firstName, booking.lastName).sort().join("|");
+      if (phoneChanged || nameChanged || dayChanged) {
+        dupCheck = {
+          phone: newPhone,
+          firstName: newFirst,
+          lastName: newLast,
+          departureDate: (upd.departureDate as Date | undefined) ?? booking.departureDate,
+          returnDate: "returnDate" in upd ? (upd.returnDate as Date | null) : booking.returnDate,
+          excludeBookingId: id, // rezervarea editată nu e dublura ei însăși
+        };
+        const dup = await findDuplicateByPhone(prisma, dupCheck);
+        // Blocăm DOAR aceeași persoană. Alt nume pe același telefon (familie)
+        // trece fără bifă: la creare bifa confirmă că operatorul adaugă cu bună
+        // știință a doua persoană pe telefon, dar aici rezervarea există deja —
+        // operatorul doar o corectează, nu mai adaugă pe nimeni pe cursă.
+        if (dup && dup.samePerson) {
+          return NextResponse.json({ success: false, error: duplicateMessageForOperator(dup) }, { status: 409 });
+        }
       }
     }
 
@@ -138,6 +226,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     try {
       await prisma.$transaction(async (tx) => {
+        // Recontrol de dublură (ca la creare): două salvări simultane ale
+        // aceleiași persoane trec amândouă de verificarea de mai sus înainte
+        // ca vreuna să scrie. Aici fereastra e de milisecunde.
+        if (dupCheck) {
+          const dup = await findDuplicateByPhone(tx, dupCheck);
+          if (dup && dup.samePerson) throw new DuplicatePhoneEditError(dup);
+        }
         if (toDelete.length > 0) {
           await tx.seatBooking.deleteMany({ where: { id: { in: toDelete }, bookingId: id } });
         }
@@ -153,11 +248,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         await tx.booking.update({ where: { id }, data: upd });
       });
     } catch (err) {
+      if (err instanceof DuplicatePhoneEditError) {
+        return NextResponse.json({ success: false, error: duplicateMessageForOperator(err.dup) }, { status: 409 });
+      }
       // @@unique([tripId, seatNumber]): cineva a luat locul între validare și salvare.
       if (err && typeof err === "object" && (err as { code?: string }).code === "P2002") {
         return NextResponse.json({ success: false, error: "Un loc tocmai a fost ocupat de altcineva — reîncarcă și încearcă din nou." }, { status: 409 });
       }
       throw err;
+    }
+
+    // Ziua s-a mutat pe o rezervare fără cursă (singurul caz care mai trece de
+    // gardă): reminderele erau calculate pe data veche, deci ar pleca la ziua
+    // greșită. Aceeași reprogramare ca la „Reprogramare”.
+    if (dayChanged) {
+      await prisma.emailJob
+        .updateMany({
+          where: { bookingId: id, type: { in: ["reminder_24h", "reminder_2h", "review_request"] }, status: { in: ["scheduled", "queued"] } },
+          data: { status: "cancelled" },
+        })
+        .catch(() => {});
+      await enqueueRemindersOnly(id).catch((err) => console.error("enqueueReminders after edit:", err));
     }
 
     return NextResponse.json({ success: true });

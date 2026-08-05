@@ -19,6 +19,7 @@ export async function autoLinkTripAndClient(bookingId: string): Promise<{
   const updates: {
     tripId?: string;
     clientId?: string;
+    departureDate?: Date;
   } = {};
   let createdClient = false;
 
@@ -44,10 +45,12 @@ export async function autoLinkTripAndClient(bookingId: string): Promise<{
       });
 
       if (route) {
-        const dayStart = new Date(booking.departureDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
+        // Ziua se taie în UTC — la fel ca peste tot (lib/runSeats, dedup-ul pe
+        // telefon). Cu `setHours` local, o plecare la 04:00 UTC cădea în ziua
+        // precedentă pe un server la vest de Greenwich și se lega de altă cursă.
+        const d = booking.departureDate;
+        const dayStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+        const dayEnd = new Date(dayStart.getTime() + 24 * 3600 * 1000);
 
         const trip = await prisma.trip.findFirst({
           where: {
@@ -58,7 +61,13 @@ export async function autoLinkTripAndClient(bookingId: string): Promise<{
           orderBy: { departureAt: "asc" },
         });
 
-        if (trip) updates.tripId = trip.id;
+        if (trip) {
+          updates.tripId = trip.id;
+          // Odată legată de cursă, data rezervării o dă cursa: altfel dedup-ul
+          // (care citește departureDate) și listele (care citesc trip.departureAt)
+          // ar arăta zile diferite pentru aceeași rezervare.
+          updates.departureDate = trip.departureAt;
+        }
       }
     }
   }
