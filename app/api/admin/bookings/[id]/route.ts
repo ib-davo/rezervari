@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { enqueueForBooking, cancelForBooking, sendCancellationNow, enqueueRemindersOnly } from '@/lib/emailQueue'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 import { findDuplicateByPhone, duplicateMessageForOperator, phoneKey, passengerKeys } from '@/lib/duplicatePhone'
+import { activeCutoff } from '@/lib/activeWindow'
 
 // Whitelist explicit — admin nu poate seta id/createdAt/relații etc.
 type EditableField = keyof typeof EDITABLE_FIELDS
@@ -159,15 +160,17 @@ export async function PATCH(
       }
     }
 
-    // O cursă care a plecat deja nu se mai anulează: ar elibera locuri degeaba și
-    // ar trimite clientului email de anulare pentru o călătorie trecută (un tab
-    // vechi rămas deschis). Aceeași convenție ca în /api/operator/bookings/[id]:
-    // comparăm cu ORA reală de plecare (returul dacă există), nu cu ziua.
+    // O cursă ÎNCHEIATĂ nu se mai anulează (un tab vechi rămas deschis): n-ar mai
+    // elibera nimic și ar trimite email de anulare pentru o călătorie trecută.
+    // Pragul e fereastra din lib/activeWindow — drumul durează 28–40h, iar ora
+    // plecării din hub nu înseamnă „gata cursa": pasagerii din sud urcă ore mai
+    // târziu, iar locul lor trebuie să se poată elibera. Aceeași regulă ca în
+    // /api/operator/bookings/[id].
     if (data.status === 'cancelled' && previous.status !== 'cancelled') {
       const last = previous.returnDate ?? previous.departureDate
-      if (previous.archivedAt || new Date(last) < new Date()) {
+      if (previous.archivedAt || new Date(last) < activeCutoff()) {
         return NextResponse.json(
-          { success: false, error: 'Cursa a plecat deja — rezervarea nu mai poate fi anulată.' },
+          { success: false, error: 'Cursa s-a încheiat — rezervarea nu mai poate fi anulată.' },
           { status: 400 }
         )
       }

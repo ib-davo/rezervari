@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { cancelForBooking, enqueueRemindersOnly, sendCancellationNow } from "@/lib/emailQueue";
 import { seatDataForBooking } from "@/lib/operatorSeats";
+import { activeCutoff } from "@/lib/activeWindow";
 import { findDuplicateByPhone, duplicateMessageForOperator, phoneKey, passengerKeys, type DuplicateBooking } from "@/lib/duplicatePhone";
 
 export const dynamic = "force-dynamic";
@@ -361,15 +362,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   });
   if (!existing) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
 
-  // O cursă care a plecat deja nu se mai anulează — ar elibera locuri degeaba
-  // și ar trimite clientului email de anulare pentru o călătorie trecută (ex.
-  // un tab vechi rămas deschis pe Active). Aceeași convenție de „trecut" ca în
-  // GET: comparăm cu ORA reală de plecare (retur dacă există), nu cu ziua.
+  // O cursă ÎNCHEIATĂ nu se mai anulează (ex. un tab vechi rămas deschis pe
+  // Active): n-ar mai elibera nimic și ar trimite clientului email de anulare
+  // pentru o călătorie trecută.
+  //
+  // Pragul e fereastra din lib/activeWindow, ACELAȘI pe care îl folosește panoul
+  // ca să afișeze rezervarea. Înainte compara cu ORA plecării, adică declara
+  // cursa „trecută" în chiar clipa în care pornea din Chișinău — deși drumul
+  // durează 28–40h și pasagerii din sud (Cahul, Leova, Balaban) urcă ore mai
+  // târziu. Rezultatul: operatorul vedea pasagerul în panou, apăsa „Anulat", și
+  // serverul refuza. Dacă panoul îl arată, trebuie să se poată și anula —
+  // altfel locul rămâne blocat pentru cine urcă pe traseu.
   if (data.status === "cancelled") {
     const last = existing.returnDate ?? existing.departureDate;
-    if (existing.archivedAt || new Date(last) < new Date()) {
+    if (existing.archivedAt || new Date(last) < activeCutoff()) {
       return NextResponse.json(
-        { success: false, error: "Cursa a plecat deja — rezervarea nu mai poate fi anulată." },
+        { success: false, error: "Cursa s-a încheiat — rezervarea nu mai poate fi anulată." },
         { status: 400 }
       );
     }

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
+import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
@@ -129,6 +130,10 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     };
   }, [load, scheduleReload]);
 
+  // Eroarea ultimei acțiuni — afișată de ActionToast, în afara listei.
+  const [actErr, setActErr] = useState<string | null>(null);
+  const clearActErr = useCallback(() => setActErr(null), []);
+
   const act = useCallback(async (id: string, patch: Record<string, unknown>): Promise<ActResult> => {
     // Optimist: aplicăm local instant; la eșec revenim DOAR cardul afectat
     // (un snapshot pe toată lista ar șterge update-urile concurente reușite
@@ -166,12 +171,17 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         throw new ActError(msg);
       }
       load();
+      setActErr(null);
       return { ok: true };
     } catch (err) {
       if (original) {
         setBookings((cur) => cur.map((b) => (b.id === id ? original : b)));
       }
-      return { ok: false, error: err instanceof ActError ? err.message || undefined : undefined };
+      // Eroarea se arată la nivel de ecran: cardul revine la starea veche, iar
+      // dropdown-ul lui trece pe read-only — n-are cine s-o afișeze (vezi ActionToast).
+      const msg = err instanceof ActError ? err.message || undefined : undefined;
+      setActErr(msg ?? "Nu s-a putut salva — verifică legătura și încearcă din nou.");
+      return { ok: false, error: msg };
     }
   }, [bookings, load]);
 
@@ -450,6 +460,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
           })}
         </div>
       )}
+      <ActionToast message={actErr} onClose={clearActErr} />
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
+import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { SeatMapModal } from "@/components/operator/SeatMapModal";
 import type { BusLayout } from "@/lib/adminMock";
@@ -129,6 +130,9 @@ export default function TripsView() {
   const [viewMonth, setViewMonth] = useState<Date>(() => new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState(0); // ceasul cardurilor („Pe drum") — vezi load()
+  // Eroarea ultimei acțiuni — afișată de ActionToast, în afara listei.
+  const [actErr, setActErr] = useState<string | null>(null);
+  const clearActErr = useCallback(() => setActErr(null), []);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitDay = useRef(false);
 
@@ -247,10 +251,15 @@ export default function TripsView() {
         throw new ActError(msg);
       }
       load();
+      setActErr(null);
       return { ok: true };
     } catch (err) {
       setGroups(snapshot);
-      return { ok: false, error: err instanceof ActError ? err.message || undefined : undefined };
+      // Eroarea se arată la nivel de ecran: rândul anulat optimist tocmai a ieșit
+      // din listă, deci n-are cine s-o afișeze lângă el (vezi ActionToast).
+      const msg = err instanceof ActError ? err.message || undefined : undefined;
+      setActErr(msg ?? "Nu s-a putut salva — verifică legătura și încearcă din nou.");
+      return { ok: false, error: msg };
     }
   }, [groups, load]);
 
@@ -510,6 +519,7 @@ export default function TripsView() {
           ))}
         </div>
       )}
+      <ActionToast message={actErr} onClose={clearActErr} />
     </div>
   );
 }

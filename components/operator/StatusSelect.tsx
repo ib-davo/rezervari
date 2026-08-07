@@ -69,8 +69,6 @@ export function StatusSelect({
   // cât timp nu chemăm onChange el rămâne VIZUAL pe starea veche — „Nu" doar
   // închide chip-ul, fără nimic de derulat înapoi.
   const [confirmCancel, setConfirmCancel] = useState(false);
-  // Serverul poate refuza („Cursa a plecat deja…") — mesajul lui, lângă rând.
-  const [err, setErr] = useState<string | null>(null);
   const cur = PASSENGER_STATES.find((s) => s.v === value) ?? PASSENGER_STATES[0];
   const shell = `inline-flex items-center rounded-full border py-1 text-[11px] font-bold ${cur.cls}`;
 
@@ -78,11 +76,12 @@ export function StatusSelect({
     return <span title={title} className={`${shell} px-2.5`}>{cur.label}</span>;
   }
 
+  // Serverul poate refuza (ex. „Cursa s-a încheiat…"). Mesajul NU se afișează
+  // aici: anularea scoate rândul din listă, deci componenta asta se demontează
+  // înainte să apuce să-l arate. Îl afișează ActionToast, la nivel de ecran.
   const run = async (next: PassengerState) => {
     setBusy(true);
-    setErr(null);
-    const r = await onChange(next);
-    if (!r.ok) setErr(r.error || "Nu s-a putut salva — încearcă din nou.");
+    await onChange(next);
     setBusy(false);
     setConfirmCancel(false);
   };
@@ -119,7 +118,6 @@ export function StatusSelect({
               if (next === value) return;
               // Anularea reală cere confirmare; restul stărilor sunt soft și merg direct.
               if (next === "cancelled") {
-                setErr(null);
                 setConfirmCancel(true);
                 return;
               }
@@ -138,7 +136,6 @@ export function StatusSelect({
             : <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 opacity-80" />}
         </span>
       )}
-      {err && <span className="text-[10px] font-semibold text-red-600">{err}</span>}
     </>
   );
 }
