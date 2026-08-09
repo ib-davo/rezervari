@@ -57,6 +57,16 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Pagina publică /bilet își ia datele din GET /api/bookings/[nr] — fără
+  // excepția asta, clientul cu link din email/WhatsApp primea 401 din proxy
+  // și vedea „Bilet negăsit". Doar citire: PATCH (date de contact) rămâne sub PIN.
+  if (
+    (req.method === "GET" || req.method === "HEAD") &&
+    /^\/api\/bookings\/[^/]+$/.test(pathname)
+  ) {
+    return NextResponse.next();
+  }
+
   if (!isPublicPage(pathname)) {
     const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
     if (!session) {
