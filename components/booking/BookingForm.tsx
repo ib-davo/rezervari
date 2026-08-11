@@ -35,6 +35,7 @@ import RouteHero from "@/components/booking/RouteHero";
 import { StepBar } from "@/components/booking/StepBar";
 import { TripPicker, type PublicTrip } from "@/components/booking/TripPicker";
 import SuccessCard from "@/components/ui/SuccessCard";
+import { TicketShareActions } from "@/components/ui/TicketShareActions";
 
 type PassengerName = { firstName: string; lastName: string };
 
@@ -509,6 +510,22 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const displayTotal = hasPriceBasis || hasCustomPrice ? `${effectiveTotal}${currency}` : null;
 
   if (result) {
+    // Textul partajat pe socials — aceeași sursă ca departureCity/arrivalCity
+    // trimise la server (personalizarea operatorului are prioritate).
+    const shareFrom = embedded && customFrom.trim() ? customFrom.trim() : (fromCityName || (mode === "colet" ? sender.city : ""));
+    const shareTo = embedded && customTo.trim() ? customTo.trim() : (toCityName || (mode === "colet" ? recipient.city : ""));
+    const routePart = shareFrom && shareTo ? `${shareFrom} → ${shareTo}` : result.bookingNumber;
+    const shareText = mode === "colet" ? `Coletul tău DAVO: ${routePart}` : `Biletul tău DAVO: ${routePart}`;
+    const newBooking = () => {
+      setResult(null);
+      setStep(0);
+      // Personalizările sunt per-rezervare — altfel adresa/prețul vechi
+      // s-ar aplica silențios la următoarea rezervare a operatorului.
+      setCustomPrice("");
+      setCustomFrom("");
+      setCustomTo("");
+    };
+
     if (embedded) {
       return (
         <div className="mx-auto max-w-xl rounded-2xl border border-[color:var(--ink-200)] bg-white p-8 text-center shadow-sm">
@@ -519,20 +536,15 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
             {" "}{result.price}{result.currency === "GBP" ? "£" : "€"}
             {(mode === "bilet" ? person.email.trim() : sender.email.trim()) ? " · email trimis clientului" : " · fără email (nu s-a trimis confirmare)"}
           </p>
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <div className="mt-6">
+            <TicketShareActions ticketUrl={result.ticketUrl} shareText={shareText} />
+          </div>
+          <div className="mt-6 flex flex-wrap justify-center gap-2 border-t border-[color:var(--ink-100)] pt-5">
             <Link href="/panou" className="inline-flex items-center gap-2 rounded-full bg-[color:var(--navy-900)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110">
               Înapoi la panou
             </Link>
             <button
-              onClick={() => {
-                setResult(null);
-                setStep(0);
-                // Personalizările sunt per-rezervare — altfel adresa/prețul vechi
-                // s-ar aplica silențios la următoarea rezervare a operatorului.
-                setCustomPrice("");
-                setCustomFrom("");
-                setCustomTo("");
-              }}
+              onClick={newBooking}
               className="inline-flex items-center gap-2 rounded-full bg-[color:var(--red-500)] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[color:var(--red-600)]"
             >
               Rezervare nouă
@@ -541,7 +553,15 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
         </div>
       );
     }
-    return <SuccessCard bookingNumber={result.bookingNumber} ticketUrl={result.ticketUrl} mode={mode} />;
+    return (
+      <SuccessCard
+        bookingNumber={result.bookingNumber}
+        ticketUrl={result.ticketUrl}
+        mode={mode}
+        shareText={shareText}
+        onNewBooking={newBooking}
+      />
+    );
   }
 
   const next = () => {

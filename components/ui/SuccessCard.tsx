@@ -2,16 +2,23 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Check, Download, Home, Search, Ticket } from "lucide-react";
+import { ArrowLeft, Check, Plus, Search } from "lucide-react";
+import { TicketShareActions } from "@/components/ui/TicketShareActions";
 
 export default function SuccessCard({
   bookingNumber,
   ticketUrl,
   mode = "bilet",
+  shareText,
+  onNewBooking,
 }: {
   bookingNumber?: string;
   ticketUrl?: string;
   mode?: "bilet" | "colet";
+  /** Textul partajat pe socials împreună cu linkul biletului. */
+  shareText?: string;
+  /** Resetează formularul pentru încă o rezervare (fără să piardă ruta aleasă). */
+  onNewBooking?: () => void;
 }) {
   const title =
     mode === "colet"
@@ -55,40 +62,40 @@ export default function SuccessCard({
             </div>
           )}
 
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            {ticketUrl && (
-              <Link
-                href={ticketUrl}
-                className="inline-flex items-center gap-2 rounded-full bg-[color:var(--red-500)] px-6 py-3.5 font-semibold text-white hover:bg-[color:var(--red-600)] transition-colors shadow-[0_18px_40px_-12px_rgba(225,30,43,0.45)]"
+          {ticketUrl && (
+            <div className="mt-8">
+              <TicketShareActions
+                ticketUrl={ticketUrl}
+                shareText={shareText ?? `Biletul tău DAVO — ${bookingNumber ?? ""}`.trim()}
+              />
+            </div>
+          )}
+
+          <div className="mt-8 flex flex-wrap justify-center gap-3 border-t border-[color:var(--ink-100)] pt-6">
+            {onNewBooking && (
+              <button
+                onClick={onNewBooking}
+                className="inline-flex items-center gap-2 rounded-full bg-[color:var(--navy-900)] px-6 py-3 text-sm font-semibold text-white hover:brightness-110 transition-all"
               >
-                <Ticket className="h-4 w-4" />
-                Vezi biletul
-              </Link>
+                <Plus className="h-4 w-4" />
+                Rezervare nouă
+              </button>
             )}
-            {ticketUrl && (
-              <a
-                href={`${ticketUrl}?download=1`}
-                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3.5 font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
-              >
-                <Download className="h-4 w-4" />
-                Descarcă PDF
-              </a>
-            )}
-            {bookingNumber && (
+            {mode === "colet" && bookingNumber && (
               <Link
                 href={`/livrare?nr=${bookingNumber}`}
-                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3.5 font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
+                className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3 text-sm font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
               >
                 <Search className="h-4 w-4" />
                 Vezi rezervarea
               </Link>
             )}
             <Link
-              href="/"
-              className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3.5 font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
+              href="/panou"
+              className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3 text-sm font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
             >
-              <Home className="h-4 w-4" />
-              Acasă
+              <ArrowLeft className="h-4 w-4" />
+              Înapoi la panou
             </Link>
           </div>
         </motion.div>
