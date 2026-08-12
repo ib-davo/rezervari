@@ -156,17 +156,27 @@ export function CountryCityPicker({
   // picker-ul de destinație, doar Moldova mai e vizibilă). Economiseste un
   // click utilizatorului și evită faza de "Țară" cu dropdown gol.
   const onlyCountry = visible.length === 1 ? visible[0].name : null;
+  const citiesKey = cities.map((c) => c.name).join("|");
   useEffect(() => {
     if (!country && onlyCountry) {
       onChange(buildValue(city, onlyCountry));
+      return;
     }
     // Dacă țara curentă a devenit invalidă (filtrul a ascuns-o), o resetăm
     // — caller-ul (Hero/rezervare) face și auto-flip pe partea opusă.
     if (country && !visible.some((c) => c.name === country)) {
       onChange(buildValue("", onlyCountry ?? ""));
+      return;
+    }
+    // Orașul ales dintr-o listă mai largă poate deveni invalid când lista se
+    // îngustează (ex. „Orhei" ales cât destinația nu era încă selectată, apoi
+    // se alege Anglia → rămân doar orașele de sud). Fără resetul ăsta, orașul
+    // fantomă rămânea pe rezervare deși nu mai apărea în dropdown.
+    if (country && city && selectedCountry && !cities.some((c) => c.name === city)) {
+      onChange(buildValue("", country));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onlyCountry, country]);
+  }, [onlyCountry, country, city, citiesKey]);
 
   const countryPh = countryPlaceholder ?? (locale === "ru" ? "Страна" : "Țară");
   const cityPh = cityPlaceholder ?? (locale === "ru" ? "Город" : "Oraș");

@@ -6,6 +6,7 @@ import type { OperatorBooking } from "./BookingsView";
 import { BusSeatMap } from "@/components/booking/BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
 import type { ActResult } from "@/lib/operatorAct";
+import { destinations, mdCitiesFor, offRouteMdCity } from "@/lib/data";
 
 // Datele de locuri pe un segment (răspunsul /bookings/[id]/seats). Ocuparea e
 // circuit-aware (vezi lib/operatorSeats) — identică cu harta din panou.
@@ -132,6 +133,37 @@ export function EditBookingModal({
     if (!Number.isFinite(priceNum) || priceNum < 0) {
       setError("Preț invalid.");
       return;
+    }
+
+    // Orașul MD trebuie să fie oprire reală pe traseul țării destinație (așa a
+    // ajuns „Orhei" pe bilete de Anglia). Validăm DOAR câmpurile modificate —
+    // rezervările vechi cu orașe scoase între timp rămân editabile la preț etc.
+    if (isPassenger) {
+      const resolveCountrySlug = (): string | null => {
+        for (const v of [arrCity, depCity]) {
+          const tail = v.includes(",") ? v.slice(v.lastIndexOf(",") + 1).trim().toLowerCase() : null;
+          const byTail = destinations.find((d) => d.name.toLowerCase() === tail);
+          if (byTail) return byTail.slug;
+          const head = v.split(",")[0].trim().toLowerCase();
+          const byCity = destinations.find((d) => d.cities.some((c) => c.name.toLowerCase() === head));
+          if (byCity) return byCity.slug;
+        }
+        return null;
+      };
+      const allowed = mdCitiesFor(resolveCountrySlug());
+      if (allowed) {
+        for (const [next, prev] of [
+          [depCity, b.departureCity],
+          [arrCity, b.arrivalCity],
+        ]) {
+          if (next.trim() === prev.trim()) continue;
+          const bad = offRouteMdCity(next, allowed);
+          if (bad) {
+            setError(`„${bad}" nu e oprire pe traseul acestei curse — folosește un oraș din lista țării (câmpul e liber doar pentru adresa exactă).`);
+            return;
+          }
+        }
+      }
     }
 
     // Locuri din hartă. Trimitem `seats` doar pentru segmentele schimbate. Impunem

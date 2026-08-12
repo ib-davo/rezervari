@@ -23,7 +23,7 @@ import {
   Search,
   Copy,
 } from "lucide-react";
-import { destinations, moldovanCities, contactInfo, mdCitiesFor, mdStopOffset } from "@/lib/data";
+import { destinations, moldovanCities, contactInfo, mdCitiesFor, mdStopOffset, offRouteMdCity } from "@/lib/data";
 import { seatSurcharge } from "@/lib/pricing";
 import { CountryCityPicker, complementHide, getCountryFromValue } from "@/components/booking/CountryCityPicker";
 import { useLocale } from "@/lib/i18n/client";
@@ -643,6 +643,24 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   })();
 
   const submit = async () => {
+    // Ultima plasă anti-„Orhei pe Anglia": orice text care ține loc de oraș
+    // (picker, URL sau câmpul liber de adresă din panou) și care ÎNCEPE cu un
+    // oraș MD cunoscut trebuie să fie oprire reală pe traseul țării destinație.
+    if (mode === "bilet" && mdPassCities) {
+      const cityTexts = [
+        embedded && customFrom.trim() ? customFrom : fromCityName,
+        embedded && customTo.trim() ? customTo : toCityName,
+      ];
+      for (const text of cityTexts) {
+        const bad = offRouteMdCity(text, mdPassCities);
+        if (bad) {
+          setSubmitError(
+            `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"} — alege un oraș din listă (câmpul liber e doar pentru adresa exactă de îmbarcare).`
+          );
+          return;
+        }
+      }
+    }
     setSubmitting(true);
     setSubmitError(null);
     try {

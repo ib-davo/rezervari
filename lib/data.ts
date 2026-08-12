@@ -194,8 +194,8 @@ const ANGLIA_STOPS: MdStop[] = [
   { name: "Hîncești", offsetMin: 40 },
   { name: "Cimișlia", offsetMin: 70 },
   { name: "Comrat", offsetMin: 95 },
-  { name: "Balabanu", offsetMin: 105 },
-  { name: "Kongaz", offsetMin: 110 },
+  { name: "Kongaz", offsetMin: 105 },
+  { name: "Balabanu", offsetMin: 110 },
   { name: "Cahul", offsetMin: 165 },
 ];
 
@@ -213,8 +213,8 @@ const BELGIA_STOPS: MdStop[] = [
   { name: "Hîncești", offsetMin: 40 },
   { name: "Cimișlia", offsetMin: 70 },
   { name: "Comrat", offsetMin: 95 },
-  { name: "Balabanu", offsetMin: 105 },
-  { name: "Kongaz", offsetMin: 110 },
+  { name: "Kongaz", offsetMin: 105 },
+  { name: "Balabanu", offsetMin: 110 },
   { name: "Cahul", offsetMin: 165 },
 ];
 
@@ -226,10 +226,17 @@ export const mdPassengerStops: Record<string, MdStop[]> = {
   germania: BELGIA_STOPS,
 };
 
+// Opriri scoase din ofertă (operatorul le-a scos de pe davo.md pe 10.08.2026):
+// nu se mai vând pasagerilor pe NICIO țară, dar rămân în liste ca biletele deja
+// emise să-și păstreze ora corectă prin mdStopOffset.
+const RETIRED_PASSENGER_STOPS = new Set(["Orhei"]);
+
 /** Orașele MD (nume) oferite pentru o țară destinație pe cursele de pasageri. */
 export function mdCitiesFor(countrySlug: string | null | undefined): string[] | null {
   const stops = countrySlug ? mdPassengerStops[countrySlug.toLowerCase()] : null;
-  return stops ? stops.map((s) => s.name) : null;
+  return stops
+    ? stops.filter((s) => !RETIRED_PASSENGER_STOPS.has(s.name)).map((s) => s.name)
+    : null;
 }
 
 /** Minutele față de Chișinău pentru un oraș MD pe ruta unei țări (0 dacă necunoscut). */
@@ -238,6 +245,36 @@ export function mdStopOffset(countrySlug: string | null | undefined, cityName: s
   if (!stops) return 0;
   const c = cityName.trim().toLowerCase();
   return stops.find((s) => s.name.toLowerCase() === c)?.offsetMin ?? 0;
+}
+
+// Toate numele de orașe MD cunoscute (lista de colete + opririle de pasageri) —
+// ca să recunoaștem un oraș moldovenesc într-un text liber, indiferent de rută.
+const ALL_MD_CITY_NAMES: string[] = Array.from(
+  new Set([
+    "Chișinău",
+    ...moldovanCities.map((c) => c.name),
+    ...Object.values(mdPassengerStops).flat().map((s) => s.name),
+  ])
+);
+
+// Comparație fără diacritice ("Balti" trebuie să-l prindă pe "Bălți").
+function normalizeCity(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+}
+
+/** Dacă textul (oraș sau „Oraș, adresă…") începe cu un oraș MD cunoscut care NU
+ *  e printre opririle permise, întoarce numele orașului; altfel null. Folosit ca
+ *  ultima plasă la submit — „Orhei" a ajuns pe bilete de Anglia și prin picker,
+ *  și prin câmpul liber de adresă din panou. */
+export function offRouteMdCity(text: string, allowedCities: string[]): string | null {
+  const head = normalizeCity(text.split(",")[0]);
+  if (!head) return null;
+  const hit = ALL_MD_CITY_NAMES.find((name) => {
+    const n = normalizeCity(name);
+    return head === n || head.startsWith(n + " ");
+  });
+  if (!hit) return null;
+  return allowedCities.some((a) => normalizeCity(a) === normalizeCity(hit)) ? null : hit;
 }
 
 export const services: Service[] = [
