@@ -509,6 +509,20 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const effectiveTotal = hasCustomPrice ? Math.round(parseFloat(customPrice)) : total;
   const displayTotal = hasPriceBasis || hasCustomPrice ? `${effectiveTotal}${currency}` : null;
 
+  // Operatorul POATE scrie manual un oraș care nu e oprire pe traseul țării
+  // (Orhei pe Anglia, pentru cazuri gen familia în vârstă luată din drum).
+  // Nu-l blocăm — doar îi spunem ce înseamnă: ora din program nu se aplică.
+  const customCityNote = (() => {
+    if (!embedded || mode !== "bilet" || !mdPassCities) return null;
+    const bad = [customFrom, customTo]
+      .filter((t) => t.trim())
+      .map((t) => offRouteMdCity(t, mdPassCities))
+      .find(Boolean);
+    return bad
+      ? `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"}. Rezervarea se face oricum — dar ora și locul de îmbarcare le stabilești tu cu clientul.`
+      : null;
+  })();
+
   if (result) {
     // Textul partajat pe socials — aceeași sursă ca departureCity/arrivalCity
     // trimise la server (personalizarea operatorului are prioritate).
@@ -647,19 +661,22 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   })();
 
   const submit = async () => {
-    // Ultima plasă anti-„Orhei pe Anglia": orice text care ține loc de oraș
-    // (picker, URL sau câmpul liber de adresă din panou) și care ÎNCEPE cu un
-    // oraș MD cunoscut trebuie să fie oprire reală pe traseul țării destinație.
+    // Ultima plasă anti-„Orhei pe Anglia": orașul venit din picker sau din URL
+    // trebuie să fie oprire reală pe traseul țării destinație.
+    // Câmpul liber din panou NU intră la verificare: acolo operatorul scrie în
+    // cunoștință de cauză (ex. familia în vârstă preluată din Orhei, deși Orhei
+    // nu se mai oferă în listă). Îi arătăm doar o notă la pasul Plată.
     if (mode === "bilet" && mdPassCities) {
-      const cityTexts = [
-        embedded && customFrom.trim() ? customFrom : fromCityName,
-        embedded && customTo.trim() ? customTo : toCityName,
+      const pickedCities = [
+        embedded && customFrom.trim() ? null : fromCityName,
+        embedded && customTo.trim() ? null : toCityName,
       ];
-      for (const text of cityTexts) {
+      for (const text of pickedCities) {
+        if (!text) continue;
         const bad = offRouteMdCity(text, mdPassCities);
         if (bad) {
           setSubmitError(
-            `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"} — alege un oraș din listă (câmpul liber e doar pentru adresa exactă de îmbarcare).`
+            `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"} — alege un oraș din listă${embedded ? " (sau scrie-l în „Adresă personalizată pe bilet”, la pasul Plată)" : ""}.`
           );
           return;
         }
@@ -960,6 +977,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
                           onCustomTo={setCustomTo}
                           defaultFrom={fromCityName}
                           defaultTo={toCityName}
+                          customCityNote={customCityNote}
                         />
                       )}
                     </>
@@ -1671,6 +1689,7 @@ function PaymentStep({
   onCustomTo,
   defaultFrom = "",
   defaultTo = "",
+  customCityNote = null,
 }: {
   mode: Mode;
   lines: { label: string; value: string }[];
@@ -1689,6 +1708,8 @@ function PaymentStep({
   onCustomTo?: (v: string) => void;
   defaultFrom?: string;
   defaultTo?: string;
+  /** Avertisment (nu blocaj) când textul liber e un oraș MD în afara traseului. */
+  customCityNote?: string | null;
 }) {
   const moment = mode === "bilet" ? "îmbarcare" : "livrare";
   return (
@@ -1754,7 +1775,7 @@ function PaymentStep({
             Adresă personalizată pe bilet (opțional)
           </label>
           <p className="mt-1 text-xs text-[color:var(--ink-500)]">
-            Scrie orice — adresă exactă, punct de îmbarcare. Gol = orașele alese la pasul Direcție.
+            Scrie orice — adresă exactă, punct de îmbarcare, oraș care nu e în listă. Gol = orașele alese la pasul Direcție.
           </p>
           <div className="mt-2 grid gap-2 md:grid-cols-2">
             <input
@@ -1772,6 +1793,11 @@ function PaymentStep({
               className="rounded-lg border border-[color:var(--ink-300)] bg-white px-3 py-2 text-sm font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
             />
           </div>
+          {customCityNote && (
+            <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs font-semibold text-amber-800">
+              {customCityNote}
+            </p>
+          )}
         </div>
       )}
 

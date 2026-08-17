@@ -123,6 +123,39 @@ export function EditBookingModal({
       ? null
       : Math.round((b.price / passengers.length) * kept.length);
 
+  // Orașul MD scris de mână poate să nu fie oprire pe traseul țării (ex. Orhei
+  // pe cursa de Anglia, pentru o familie preluată din drum). Operatorul are voie
+  // să-l pună — îi arătăm doar o notă, ca să știe că ora din program nu se
+  // aplică acolo. Verificăm doar câmpurile atinse: rezervările vechi, cu orașe
+  // scoase din ofertă între timp, nu trebuie să deranjeze la editarea prețului.
+  const offRouteNote = (() => {
+    if (!isPassenger) return null;
+    const resolveCountrySlug = (): string | null => {
+      for (const v of [arrCity, depCity]) {
+        const tail = v.includes(",") ? v.slice(v.lastIndexOf(",") + 1).trim().toLowerCase() : null;
+        const byTail = destinations.find((d) => d.name.toLowerCase() === tail);
+        if (byTail) return byTail.slug;
+        const head = v.split(",")[0].trim().toLowerCase();
+        const byCity = destinations.find((d) => d.cities.some((c) => c.name.toLowerCase() === head));
+        if (byCity) return byCity.slug;
+      }
+      return null;
+    };
+    const allowed = mdCitiesFor(resolveCountrySlug());
+    if (!allowed) return null;
+    for (const [next, prev] of [
+      [depCity, b.departureCity],
+      [arrCity, b.arrivalCity],
+    ]) {
+      if (next.trim() === prev.trim()) continue;
+      const bad = offRouteMdCity(next, allowed);
+      if (bad) {
+        return `„${bad}" nu e oprire pe traseul acestei curse. Se salvează așa cum ai scris — ora și locul de îmbarcare le stabilești tu cu clientul.`;
+      }
+    }
+    return null;
+  })();
+
   const save = async () => {
     setError(null);
     if (isPassenger && kept.length < 1) {
@@ -133,37 +166,6 @@ export function EditBookingModal({
     if (!Number.isFinite(priceNum) || priceNum < 0) {
       setError("Preț invalid.");
       return;
-    }
-
-    // Orașul MD trebuie să fie oprire reală pe traseul țării destinație (așa a
-    // ajuns „Orhei" pe bilete de Anglia). Validăm DOAR câmpurile modificate —
-    // rezervările vechi cu orașe scoase între timp rămân editabile la preț etc.
-    if (isPassenger) {
-      const resolveCountrySlug = (): string | null => {
-        for (const v of [arrCity, depCity]) {
-          const tail = v.includes(",") ? v.slice(v.lastIndexOf(",") + 1).trim().toLowerCase() : null;
-          const byTail = destinations.find((d) => d.name.toLowerCase() === tail);
-          if (byTail) return byTail.slug;
-          const head = v.split(",")[0].trim().toLowerCase();
-          const byCity = destinations.find((d) => d.cities.some((c) => c.name.toLowerCase() === head));
-          if (byCity) return byCity.slug;
-        }
-        return null;
-      };
-      const allowed = mdCitiesFor(resolveCountrySlug());
-      if (allowed) {
-        for (const [next, prev] of [
-          [depCity, b.departureCity],
-          [arrCity, b.arrivalCity],
-        ]) {
-          if (next.trim() === prev.trim()) continue;
-          const bad = offRouteMdCity(next, allowed);
-          if (bad) {
-            setError(`„${bad}" nu e oprire pe traseul acestei curse — folosește un oraș din lista țării (câmpul e liber doar pentru adresa exactă).`);
-            return;
-          }
-        }
-      }
     }
 
     // Locuri din hartă. Trimitem `seats` doar pentru segmentele schimbate. Impunem
@@ -384,6 +386,11 @@ export function EditBookingModal({
             />
           </label>
         </div>
+        {offRouteNote && (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            {offRouteNote}
+          </p>
+        )}
 
         {/* Contact */}
         <div className="mt-4 grid gap-2 md:grid-cols-2">
