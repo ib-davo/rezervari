@@ -537,7 +537,11 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
             {(mode === "bilet" ? person.email.trim() : sender.email.trim()) ? " · email trimis clientului" : " · fără email (nu s-a trimis confirmare)"}
           </p>
           <div className="mt-6">
-            <TicketShareActions ticketUrl={result.ticketUrl} shareText={shareText} />
+            <TicketShareActions
+              ticketUrl={result.ticketUrl}
+              shareText={shareText}
+              bookingNumber={result.bookingNumber}
+            />
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-2 border-t border-[color:var(--ink-100)] pt-5">
             <Link href="/panou" className="inline-flex items-center gap-2 rounded-full bg-[color:var(--navy-900)] px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110">

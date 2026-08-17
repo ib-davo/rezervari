@@ -1,0 +1,46 @@
+{
+  "id": "/panou",
+  "name": "DAVO · Panou operatori",
+  "short_name": "DAVO Operatori",
+  "description": "Rezervări, curse și îmbarcare pentru operatorii DAVO.",
+  "lang": "ro",
+  "dir": "ltr",
+  "start_url": "/panou",
+  "scope": "/panou",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#0b2653",
+  "icons": [
+    {
+      "src": "/images/panou-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/images/panou-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/images/panou-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Rezervare nouă",
+      "short_name": "Rezervare",
+      "url": "/panou/rezervare"
+    },
+    {
+      "name": "Arhivă",
+      "short_name": "Arhivă",
+      "url": "/panou/arhiva"
+    }
+  ]
+}

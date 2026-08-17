@@ -67,6 +67,7 @@ export default function SuccessCard({
               <TicketShareActions
                 ticketUrl={ticketUrl}
                 shareText={shareText ?? `Biletul tău DAVO — ${bookingNumber ?? ""}`.trim()}
+                bookingNumber={bookingNumber}
               />
             </div>
           )}

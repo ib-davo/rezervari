@@ -37,7 +37,23 @@ const SOCIALS: { name: string; bg: string; href: (url: string, text: string) => 
  * clientului pe socials. Folosit atât în cardul compact din panou cât și în
  * SuccessCard-ul de pe /rezervare — de-asta stilurile sunt „self-contained".
  */
-export function TicketShareActions({ ticketUrl, shareText }: { ticketUrl: string; shareText: string }) {
+export function TicketShareActions({
+  ticketUrl,
+  shareText,
+  bookingNumber,
+}: {
+  ticketUrl: string;
+  shareText: string;
+  /** Nr. rezervării — din el iese linkul de pe DOMENIUL CURENT (vezi mai jos). */
+  bookingNumber?: string;
+}) {
+  // `ticketUrl` e linkul CLIENTULUI: mereu davo.md (așa ajunge pe WhatsApp și în
+  // email). Dar butoanele pe care le apasă OPERATORUL trebuie să rămână pe
+  // domeniul de unde a rezervat (rezervari.davo.md): panoul e instalat pe telefon
+  // ca aplicație, iar o navigare pe davo.md o scotea din scope — la redeschidere
+  // operatorul ateriza pe site-ul public, care n-are drum înapoi spre panou.
+  const viewUrl = bookingNumber ? `/bilet/${bookingNumber}` : ticketUrl;
+
   const handleShare = async () => {
     if (navigator.share) {
       try {
@@ -59,7 +75,7 @@ export function TicketShareActions({ ticketUrl, shareText }: { ticketUrl: string
     <div className="flex flex-col items-center gap-4">
       <div className="flex flex-wrap justify-center gap-3">
         <a
-          href={ticketUrl}
+          href={viewUrl}
           target="_blank"
           rel="noopener"
           className="inline-flex items-center gap-2 rounded-full bg-[color:var(--red-500)] px-6 py-3 text-sm font-semibold text-white hover:bg-[color:var(--red-600)] transition-colors shadow-[0_18px_40px_-12px_rgba(225,30,43,0.45)]"
@@ -68,7 +84,7 @@ export function TicketShareActions({ ticketUrl, shareText }: { ticketUrl: string
           Vezi biletul
         </a>
         <a
-          href={`${ticketUrl}?download=1`}
+          href={`${viewUrl}?download=1`}
           target="_blank"
           rel="noopener"
           className="inline-flex items-center gap-2 rounded-full border border-[color:var(--ink-200)] bg-white px-6 py-3 text-sm font-semibold text-[color:var(--navy-900)] hover:border-[color:var(--navy-700)] transition-colors"
