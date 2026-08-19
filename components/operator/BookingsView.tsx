@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
-  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus,
+  AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus, MapPin, Flag,
 } from "lucide-react";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
@@ -65,6 +65,35 @@ function dayKey(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** Numele „gol" al localității. Sursele scriu diferit: site-ul salvează „Cahul",
+ *  admin-ul „Cahul, Moldova" — pentru filtre le tratăm ca același oraș. */
+function cityName(raw: string): string {
+  return (raw || "").split(",")[0].trim();
+}
+
+function cityKey(raw: string): string {
+  return cityName(raw).toLowerCase();
+}
+
+type CityOption = { value: string; label: string; count: number };
+
+/** Localitățile din set + câte rezervări are fiecare, cele mai multe primele. */
+function cityOptions(
+  list: OperatorBooking[],
+  pick: (b: OperatorBooking) => string,
+  labels: Map<string, string>,
+): CityOption[] {
+  const map = new Map<string, number>();
+  for (const b of list) {
+    const key = cityKey(pick(b));
+    if (!key) continue;
+    map.set(key, (map.get(key) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([value, count]) => ({ value, label: labels.get(value) ?? value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ro"));
+}
+
 function dayLabel(key: string): string {
   const [y, m, d] = key.split("-").map(Number);
   const date = new Date(y, m - 1, d);
@@ -80,6 +109,9 @@ function dayLabel(key: string): string {
 
 type QuickFilter = "all" | "today" | "pending" | "unpaid" | "parcel";
 
+const selectCls =
+  "max-w-[13rem] truncate rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none";
+
 export default function BookingsView({ scope }: { scope: "active" | "archived" }) {
   const [bookings, setBookings] = useState<OperatorBooking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +120,8 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   const [filter, setFilter] = useState<QuickFilter>("all");
   const [coachFilter, setCoachFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [fromFilter, setFromFilter] = useState<string>("all");
+  const [toFilter, setToFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -213,7 +247,24 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [bookings]);
 
-  const filtered = useMemo(() => bookings.filter((b) => {
+  // Etichetele „frumoase" ale localităților, din tot setul — ca orașul ales să
+  // rămână lizibil chiar dacă alte filtre îl scot temporar din listă.
+  const cityLabels = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const b of bookings) {
+      for (const raw of [b.departureCity, b.arrivalCity]) {
+        const label = cityName(raw);
+        if (label && !m.has(label.toLowerCase())) m.set(label.toLowerCase(), label);
+      }
+    }
+    return m;
+  }, [bookings]);
+
+  // Predicatul comun (chip + autocar + sursă + căutare), separat de cele două
+  // filtre pe localitate: fiecare dropdown își numără opțiunile pe setul trecut
+  // prin toate CELELALTE filtre, deci numărul din paranteză e exact câte
+  // rezervări rămân dacă alegi orașul.
+  const matchesBase = useCallback((b: OperatorBooking) => {
     if (filter === "today" && dayKey(b.departureDate) !== todayKey) return false;
     if (filter === "pending" && b.status !== "pending") return false;
     if (filter === "unpaid" && (b.paymentStatus === "paid" || b.status === "cancelled")) return false;
@@ -234,7 +285,39 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       b.arrivalCity.toLowerCase().includes(s) ||
       (b.createdByName || "").toLowerCase().includes(s)
     );
-  }), [bookings, filter, q, coachFilter, sourceFilter, todayKey]);
+  }, [filter, q, coachFilter, sourceFilter, todayKey]);
+
+  const matchesFrom = useCallback(
+    (b: OperatorBooking) => fromFilter === "all" || cityKey(b.departureCity) === fromFilter,
+    [fromFilter],
+  );
+  const matchesTo = useCallback(
+    (b: OperatorBooking) => toFilter === "all" || cityKey(b.arrivalCity) === toFilter,
+    [toFilter],
+  );
+
+  const fromCities = useMemo(() => {
+    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesTo(b)), (b) => b.departureCity, cityLabels);
+    // Orașul selectat rămâne în listă chiar dacă a rămas fără rezervări sub
+    // celelalte filtre — altfel select-ul ar arăta gol și n-ai mai putea ieși.
+    if (fromFilter !== "all" && !opts.some((o) => o.value === fromFilter)) {
+      opts.push({ value: fromFilter, label: cityLabels.get(fromFilter) ?? fromFilter, count: 0 });
+    }
+    return opts;
+  }, [bookings, matchesBase, matchesTo, fromFilter, cityLabels]);
+
+  const toCities = useMemo(() => {
+    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesFrom(b)), (b) => b.arrivalCity, cityLabels);
+    if (toFilter !== "all" && !opts.some((o) => o.value === toFilter)) {
+      opts.push({ value: toFilter, label: cityLabels.get(toFilter) ?? toFilter, count: 0 });
+    }
+    return opts;
+  }, [bookings, matchesBase, matchesFrom, toFilter, cityLabels]);
+
+  const filtered = useMemo(
+    () => bookings.filter((b) => matchesBase(b) && matchesFrom(b) && matchesTo(b)),
+    [bookings, matchesBase, matchesFrom, matchesTo],
+  );
 
   // Grupare pe ZIUĂ → AUTOCAR: operatorii gândesc în curse, nu în listă plată de
   // pasageri împrăștiați. În arhivă poți astfel vedea/selecta un autocar pe o zi.
@@ -254,6 +337,18 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       ([day, byCoach]) => [day, Array.from(byCoach.entries())] as const,
     );
   }, [filtered]);
+
+  // Arătăm dropdown-ul doar când are ce alege — dar și când e deja filtrat,
+  // altfel filtrul ar rămâne blocat fără cale de întoarcere.
+  const anyFilter =
+    !!q.trim() || filter !== "all" || coachFilter !== "all" ||
+    sourceFilter !== "all" || fromFilter !== "all" || toFilter !== "all";
+  const showFrom = fromCities.length > 1 || fromFilter !== "all";
+  const showTo = toCities.length > 1 || toFilter !== "all";
+  const filteredTotals = useMemo(() => ({
+    from: fromCities.reduce((n, c) => n + c.count, 0),
+    to: toCities.reduce((n, c) => n + c.count, 0),
+  }), [fromCities, toCities]);
 
   const chips: Array<{ key: QuickFilter; label: string; count: number; tone?: "warn" | "danger" }> = scope === "active"
     ? [
@@ -354,17 +449,50 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
           </div>
         )}
 
-        {/* Filtre pe AUTOCAR + SURSĂ — vezi/selectează un autocar pe o zi și cine
-            a creat rezervarea (site / operator X), nu pasageri împrăștiați. */}
-        {!loading && !error && (coaches.length > 1 || sources.length > 1) && (
+        {/* Filtre pe ÎMBARCARE + DESTINAȚIE + AUTOCAR + SURSĂ. Fiecare oraș își
+            arată numărul de rezervări („Cahul (12)"), calculat pe setul trecut
+            prin celelalte filtre — deci e exact ce vezi dacă îl alegi. */}
+        {!loading && !error && (showFrom || showTo || coaches.length > 1 || sources.length > 1) && (
           <div className="flex flex-wrap items-center gap-2">
+            {showFrom && (
+              <div className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                <select
+                  value={fromFilter}
+                  onChange={(e) => setFromFilter(e.target.value)}
+                  aria-label="Filtrează după localitatea de îmbarcare"
+                  className={selectCls}
+                >
+                  <option value="all">Toate îmbarcările ({filteredTotals.from})</option>
+                  {fromCities.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label} ({c.count})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {showTo && (
+              <div className="flex items-center gap-1.5">
+                <Flag className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                <select
+                  value={toFilter}
+                  onChange={(e) => setToFilter(e.target.value)}
+                  aria-label="Filtrează după destinație"
+                  className={selectCls}
+                >
+                  <option value="all">Toate destinațiile ({filteredTotals.to})</option>
+                  {toCities.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label} ({c.count})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {coaches.length > 1 && (
               <div className="flex items-center gap-1.5">
                 <Bus className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
                 <select
                   value={coachFilter}
                   onChange={(e) => setCoachFilter(e.target.value)}
-                  className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                  className={selectCls}
                 >
                   <option value="all">Toate autocarele</option>
                   {coaches.map((c) => (
@@ -379,7 +507,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
                 <select
                   value={sourceFilter}
                   onChange={(e) => setSourceFilter(e.target.value)}
-                  className="rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none"
+                  className={selectCls}
                 >
                   <option value="all">Toți (site + operatori)</option>
                   {sources.map(([v, label]) => (
@@ -410,13 +538,16 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
         <div className="rounded-2xl border border-dashed border-[color:var(--ink-200)] px-4 py-14 text-center">
           <CalendarDays className="mx-auto h-8 w-8 text-[color:var(--ink-300)]" />
           <p className="mt-3 text-sm font-semibold text-[color:var(--navy-900)]">
-            {q.trim() || filter !== "all" || coachFilter !== "all" || sourceFilter !== "all"
+            {anyFilter
               ? "Nimic nu se potrivește cu filtrarea."
               : scope === "active" ? "Nicio rezervare activă." : "Arhiva e goală."}
           </p>
-          {(q.trim() || filter !== "all" || coachFilter !== "all" || sourceFilter !== "all") && (
+          {anyFilter && (
             <button
-              onClick={() => { setQ(""); setFilter("all"); setCoachFilter("all"); setSourceFilter("all"); }}
+              onClick={() => {
+                setQ(""); setFilter("all"); setCoachFilter("all");
+                setSourceFilter("all"); setFromFilter("all"); setToFilter("all");
+              }}
               className="mt-3 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
             >
               Resetează filtrele
