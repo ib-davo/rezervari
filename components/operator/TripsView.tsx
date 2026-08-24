@@ -6,6 +6,7 @@ import {
   ArrowRight, Phone, Users, Package, User, Check, X, Armchair,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown, ChevronLeft, ChevronRight,
   AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket, Pencil, LayoutGrid,
+  MapPin, Flag,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
@@ -78,6 +79,10 @@ function seatsFor(b: OperatorBooking, g: TripGroup): number[] {
 }
 function cityOnly(s: string): string {
   return s.split(",")[0].trim();
+}
+// Cheie de oraș fără diacritice — „Chisinau" și „Chișinău" sunt același oraș.
+function cityFilterKey(raw: string): string {
+  return cityOnly(raw).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
 
 // Ziua reală a cursei legate, expusă de API pe lângă câmpurile OperatorBooking.
@@ -555,6 +560,10 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
   const [expanded, setExpanded] = useState(showDay);
   const [showCancelled, setShowCancelled] = useState(showDay);
   const [seatMapOpen, setSeatMapOpen] = useState(false);
+  // Filtru PER CURSĂ pe orașe: alegi îmbarcarea/destinația și vezi câți
+  // pasageri are cursa pe orașul ales; lista de mai jos se restrânge la ei.
+  const [fromCity, setFromCity] = useState<string>("all");
+  const [toCity, setToCity] = useState<string>("all");
   // Schema de locuri a autocarului cursei (pentru harta „Locuri").
   const busLayout = useMemo<BusLayout | null>(() => {
     const raw = g.busId ? buses.find((x) => x.id === g.busId)?.layoutJson : null;
@@ -652,6 +661,36 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
 
   const active = g.bookings.filter((b) => b.status !== "cancelled");
   const cancelledList = g.bookings.filter((b) => b.status === "cancelled");
+
+  // Opțiunile filtrelor de oraș ale cursei. Numărul din paranteză = PASAGERI
+  // (persoane, nu rezervări), calculat pe setul trecut prin celălalt dropdown —
+  // deci e exact câți rămân dacă alegi orașul. Orașul selectat rămâne în listă
+  // și cu 0, altfel n-ai mai putea ieși din filtru.
+  const matchFromCity = (b: OperatorBooking) => fromCity === "all" || cityFilterKey(b.departureCity) === fromCity;
+  const matchToCity = (b: OperatorBooking) => toCity === "all" || cityFilterKey(b.arrivalCity) === toCity;
+  const cityOpts = (pick: (b: OperatorBooking) => string, passesOther: (b: OperatorBooking) => boolean, selected: string) => {
+    const m = new Map<string, { value: string; label: string; pax: number }>();
+    for (const b of active) {
+      if (!passesOther(b)) continue;
+      const value = cityFilterKey(pick(b));
+      if (!value) continue;
+      const e = m.get(value);
+      const pax = bookingPax(b, g.tripIds);
+      if (e) e.pax += pax;
+      else m.set(value, { value, label: cityOnly(pick(b)), pax });
+    }
+    const list = [...m.values()].sort((a, b) => b.pax - a.pax || a.label.localeCompare(b.label, "ro"));
+    if (selected !== "all" && !list.some((o) => o.value === selected)) {
+      list.push({ value: selected, label: selected, pax: 0 });
+    }
+    return list;
+  };
+  const fromOpts = cityOpts((b) => b.departureCity, matchToCity, fromCity);
+  const toOpts = cityOpts((b) => b.arrivalCity, matchFromCity, toCity);
+  const visible = active.filter((b) => matchFromCity(b) && matchToCity(b));
+  const cityFilterOn = fromCity !== "all" || toCity !== "all";
+  const citySelectCls =
+    "max-w-[12rem] truncate rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none";
   // Orașul specific contează mereu pentru șofer (model hub) — îl arătăm când
   // diferă de antetul cursei sau când cursa are mai multe puncte.
   const showRouteFor = (b: OperatorBooking) =>
@@ -754,11 +793,63 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
             {isSup && <MoveBus g={g} buses={buses} onDone={onReload} />}
           </div>
 
+          {/* Filtru pe orașe ÎN cursă: „alegi orașul, vezi câți îs" — numărul
+              din paranteză = pasageri. Filtrează lista de mai jos. */}
+          {(fromOpts.length > 1 || toOpts.length > 1 || cityFilterOn) && (
+            <div className="flex flex-wrap items-center gap-2 bg-[color:var(--navy-50)] px-3 pb-3 sm:px-4">
+              {(fromOpts.length > 1 || fromCity !== "all") && (
+                <div className="flex items-center gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                  <select
+                    value={fromCity}
+                    onChange={(e) => setFromCity(e.target.value)}
+                    aria-label="Pasagerii cursei după orașul de îmbarcare"
+                    className={citySelectCls}
+                  >
+                    <option value="all">Toate îmbarcările ({fromOpts.reduce((s, o) => s + o.pax, 0)})</option>
+                    {fromOpts.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label} ({o.pax})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {(toOpts.length > 1 || toCity !== "all") && (
+                <div className="flex items-center gap-1.5">
+                  <Flag className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                  <select
+                    value={toCity}
+                    onChange={(e) => setToCity(e.target.value)}
+                    aria-label="Pasagerii cursei după orașul de destinație"
+                    className={citySelectCls}
+                  >
+                    <option value="all">Toate destinațiile ({toOpts.reduce((s, o) => s + o.pax, 0)})</option>
+                    {toOpts.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label} ({o.pax})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {cityFilterOn && (
+                <button
+                  onClick={() => { setFromCity("all"); setToCity("all"); }}
+                  className="text-[11px] font-semibold text-[color:var(--red-500)] hover:underline"
+                >
+                  Resetează
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Pasageri ACTIVI (anulatele NU apar aici) */}
           <div className="divide-y divide-[color:var(--ink-100)]">
-            {active.map((b) => (
+            {visible.map((b) => (
               <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} />
             ))}
+            {cityFilterOn && visible.length === 0 && (
+              <div className="px-3 py-6 text-center text-xs font-semibold text-[color:var(--ink-400)]">
+                Niciun pasager pe orașul ales.
+              </div>
+            )}
           </div>
 
           {/* Anulate — ascunse până la click pe „y anulate". */}
