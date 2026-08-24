@@ -141,6 +141,7 @@ function periodRange(p: PeriodFilter, now: Date): { start: Date; end: Date } | n
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -154,20 +155,31 @@ export default function BookingsPage() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Booking | null>(null);
 
-  async function fetchBookings() {
+  // Căutarea merge la SERVER: pagina ține doar ultimele 100 de rezervări, deci
+  // filtrarea locală nu găsea codurile mai vechi (păreau inexistente în admin).
+  async function fetchBookings(q: string = searchQuery) {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/bookings");
+      const query = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+      const res = await fetch(`/api/admin/bookings${query}`);
       const data = await res.json();
-      if (data?.success) setBookings(data.bookings);
+      if (data?.success) {
+        setBookings(data.bookings);
+        if (typeof data.total === "number") setTotal(data.total);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    fetchBookings();
-  }, []);
+    // Debounce doar când se tastează; încărcarea inițială / golirea căutării
+    // pleacă imediat.
+    const delay = searchQuery.trim() ? 350 : 0;
+    const t = setTimeout(() => fetchBookings(searchQuery), delay);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   async function handleStatusChange(id: string, newStatus: string) {
     try {
@@ -234,7 +246,11 @@ export default function BookingsPage() {
     <div>
       <PageHeader
         title="Rezervări"
-        subtitle={`${bookings.length} înregistrări în baza de date`}
+        subtitle={
+          searchQuery.trim()
+            ? `${total ?? bookings.length} rezultate pentru căutare`
+            : `${total ?? bookings.length} înregistrări în baza de date`
+        }
         actions={
           <>
             <button
@@ -244,7 +260,7 @@ export default function BookingsPage() {
               <Plus className="h-3.5 w-3.5" /> Rezervare manuală
             </button>
             <button
-              onClick={fetchBookings}
+              onClick={() => fetchBookings()}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
             >
               <RefreshCw className="h-3.5 w-3.5" /> Actualizare

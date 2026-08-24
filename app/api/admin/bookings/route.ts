@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { sendBookingConfirmation, type BookingConfirmationData } from '@/lib/email'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
@@ -13,14 +14,35 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '100')
     const offset = parseInt(searchParams.get('offset') || '0')
+    const q = (searchParams.get('q') || '').trim()
+
+    // Căutarea rulează în DB, nu doar peste pagina încărcată: clientul ține cel
+    // mult `limit` rânduri (cele mai noi), deci un cod DAVO- mai vechi părea
+    // inexistent deși era în baza de date. Fiecare cuvânt din căutare trebuie să
+    // se potrivească pe cel puțin un câmp (nume + prenume merg tastate împreună).
+    const tokens = q.split(/\s+/).filter(Boolean).slice(0, 6)
+    const where: Prisma.BookingWhereInput | undefined = tokens.length
+      ? {
+          AND: tokens.map((t) => ({
+            OR: [
+              { bookingNumber: { contains: t, mode: 'insensitive' as const } },
+              { email: { contains: t, mode: 'insensitive' as const } },
+              { phone: { contains: t } },
+              { firstName: { contains: t, mode: 'insensitive' as const } },
+              { lastName: { contains: t, mode: 'insensitive' as const } },
+            ],
+          })),
+        }
+      : undefined
 
     const bookings = await prisma.booking.findMany({
+      where,
       take: limit,
       skip: offset,
       orderBy: { createdAt: 'desc' },
     })
 
-    const total = await prisma.booking.count()
+    const total = await prisma.booking.count({ where })
 
     return NextResponse.json({
       success: true,
