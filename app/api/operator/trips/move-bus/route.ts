@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { buildTripGroups } from "@/lib/tripGrouping";
 import { busPlateForRun, busPlateForCountry } from "@/lib/busSchedule";
 import { sendConfirmationNow } from "@/lib/emailQueue";
+import { layoutSeatNumbers } from "@/lib/operatorSeats";
+import type { BusLayout } from "@/lib/adminMock";
 
 export const dynamic = "force-dynamic";
 
@@ -72,14 +74,25 @@ export async function POST(req: NextRequest) {
     if (!schedBus) return NextResponse.json({ success: false, error: "Nu pot determina autocarul programat pentru revenire" }, { status: 400 });
     targetBusId = schedBus.id;
   }
-  const target = await prisma.bus.findFirst({ where: { id: targetBusId, active: true }, select: { id: true, plate: true, totalSeats: true } });
+  const target = await prisma.bus.findFirst({ where: { id: targetBusId, active: true }, select: { id: true, plate: true, totalSeats: true, layoutJson: true } });
   if (!target) return NextResponse.json({ success: false, error: "Autocar invalid" }, { status: 400 });
 
-  // SIGURANȚĂ: nu trece pe un autocar mai mic decât locul maxim deja rezervat
-  // (altfel un pasager ar rămâne cu un loc inexistent pe noul autocar).
-  const maxSeat = Math.max(0, ...affected.flatMap((t) => t.seatBookings.map((s) => s.seatNumber)));
-  if (maxSeat > target.totalSeats) {
-    return NextResponse.json({ success: false, error: `Autocarul ${target.plate} are ${target.totalSeats} locuri, dar există rezervare pe locul ${maxSeat}. Eliberează locul întâi.` }, { status: 400 });
+  // SIGURANȚĂ: nu trece pe un autocar căruia îi lipsesc locuri deja rezervate
+  // (altfel un pasager ar rămâne cu un loc inexistent pe noul autocar). Comparat
+  // pe numerele REALE din schemă (seatStart/seatOverrides pot depăși numărul de
+  // locuri — ex. Altano: 54 locuri numerotate până la 60), nu pe locul maxim.
+  let targetSeats: Set<number>;
+  try {
+    const nums = layoutSeatNumbers(JSON.parse(target.layoutJson) as BusLayout);
+    targetSeats = nums.length > 0 ? new Set(nums) : new Set(Array.from({ length: target.totalSeats }, (_, i) => i + 1));
+  } catch {
+    targetSeats = new Set(Array.from({ length: target.totalSeats }, (_, i) => i + 1));
+  }
+  const missing = [...new Set(affected.flatMap((t) => t.seatBookings.map((s) => s.seatNumber)))]
+    .filter((n) => !targetSeats.has(n))
+    .sort((a, b) => a - b);
+  if (missing.length > 0) {
+    return NextResponse.json({ success: false, error: `Autocarul ${target.plate} nu are locurile ${missing.join(", ")}. Eliberează-le întâi.` }, { status: 400 });
   }
 
   const tripIds = affected.map((t) => t.id);

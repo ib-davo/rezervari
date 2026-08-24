@@ -22,7 +22,7 @@ export type SegmentSeats = {
 };
 
 // Toate numerele de scaun valide din schemă (peste toate etajele).
-function layoutSeatNumbers(layout: BusLayout): number[] {
+export function layoutSeatNumbers(layout: BusLayout): number[] {
   const decks = isMultiDeck(layout) ? layout.decks.map((d) => d.layout) : [layout];
   const out: number[] = [];
   for (const d of decks) for (const n of computeSeatNumbers(d)) if (n != null) out.push(n);

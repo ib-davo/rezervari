@@ -15,7 +15,8 @@ import {
   duplicateMessagePublic,
   type DuplicateBooking,
 } from '@/lib/duplicatePhone'
-import type { SeatLayout } from '@/lib/adminMock'
+import type { BusLayout } from '@/lib/adminMock'
+import { layoutSeatNumbers } from '@/lib/operatorSeats'
 
 // Dublură de telefon prinsă ÎN tranzacție (doi operatori care salvează în
 // aceeași secundă). O aruncăm ca să anulăm tranzacția, o traducem afară în 409.
@@ -59,25 +60,17 @@ function generateBookingNumber(): string {
   return `DAVO-${year}-${random}`
 }
 
-type AnyLayout = SeatLayout | { decks: { layout: SeatLayout }[] }
-
-function safeLayout(raw: string): AnyLayout {
+// Numerele REALE de pe harta autocarului, nu intervalul 1..număr de celule:
+// seatStart/seatOverrides pot sări peste numere (ex. Altano DAW 077 are 54 de
+// locuri numerotate până la 60), deci „loc valid" = e desenat pe hartă.
+// Layout absent/corupt → acceptăm 1..totalSeats ca să nu blocăm vânzarea.
+function validSeatNumbers(layoutJson: string, totalSeats: number): Set<number> {
   try {
-    const l = JSON.parse(raw)
-    if (l && Array.isArray((l as { decks: unknown[] }).decks)) return l as AnyLayout
-    if (l && Array.isArray((l as SeatLayout).cells)) return l as SeatLayout
+    const layout = JSON.parse(layoutJson) as BusLayout
+    const nums = layoutSeatNumbers(layout)
+    if (nums.length > 0) return new Set(nums)
   } catch {}
-  return { rows: 1, cols: 1, cells: ['empty'] }
-}
-
-function countSeatCells(layout: AnyLayout): number {
-  if ('decks' in layout) {
-    return layout.decks.reduce(
-      (s, d) => s + d.layout.cells.filter((c) => c === 'seat').length,
-      0,
-    )
-  }
-  return layout.cells.filter((c) => c === 'seat').length
+  return new Set(Array.from({ length: Math.max(0, totalSeats) }, (_, i) => i + 1))
 }
 
 type TripWithRouteAndBus = Prisma.TripGetPayload<{
@@ -100,10 +93,9 @@ async function validateTripSeats(tripId: string, seatNumbers: number[]): Promise
   if (!['scheduled', 'boarding'].includes(trip.status)) {
     return { ok: false, error: 'Cursa nu mai acceptă rezervări' }
   }
-  const layout = safeLayout(trip.bus.layoutJson)
-  const total = countSeatCells(layout)
+  const validSeats = validSeatNumbers(trip.bus.layoutJson, trip.bus.totalSeats)
   for (const n of seatNumbers) {
-    if (!Number.isInteger(n) || n < 1 || n > total) {
+    if (!Number.isInteger(n) || !validSeats.has(n)) {
       return { ok: false, error: `Scaun invalid: ${n}` }
     }
   }
