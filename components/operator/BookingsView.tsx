@@ -94,6 +94,37 @@ function cityOptions(
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ro"));
 }
 
+const fmtDateYearShort = new Intl.DateTimeFormat("ro-RO", { day: "numeric", month: "short", year: "numeric" });
+
+/** Eticheta scurtă a zilei unei curse („27 aug.", cu anul dacă nu e anul curent). */
+function tripDayLabel(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  return (y === new Date().getFullYear() ? fmtDate : fmtDateYearShort).format(date);
+}
+
+const NO_COACH = "Fără autocar";
+
+/** Identitatea unei CURSE = ziua plecării + autocarul — exact cheia pe care o
+ *  folosește și gruparea listei, deci filtrul selectează fix un grup afișat. */
+function tripKeyOf(b: OperatorBooking): string {
+  return `${dayKey(b.departureDate)}|${b.coach || NO_COACH}`;
+}
+
+/** Destinațiile grupului, compact: „Anglia, Belgia +1". Pentru „Oraș, Țară"
+ *  luăm țara (partea de după virgulă), altfel numele gol al localității. */
+function destSummary(items: OperatorBooking[]): string {
+  const set = new Set<string>();
+  for (const b of items) {
+    const raw = b.arrivalCity || "";
+    const tail = raw.includes(",") ? (raw.split(",").pop() || "").trim() : cityName(raw);
+    if (tail) set.add(tail);
+  }
+  const list = [...set].sort((a, b) => a.localeCompare(b, "ro"));
+  if (list.length === 0) return "";
+  return list.slice(0, 2).join(", ") + (list.length > 2 ? ` +${list.length - 2}` : "");
+}
+
 function dayLabel(key: string): string {
   const [y, m, d] = key.split("-").map(Number);
   const date = new Date(y, m - 1, d);
@@ -122,6 +153,9 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [fromFilter, setFromFilter] = useState<string>("all");
   const [toFilter, setToFilter] = useState<string>("all");
+  // Arhivă: filtrare PER CURSĂ (zi + autocar), nu pe localități — operatorii
+  // caută „cursa din 27 aug", nu orașul.
+  const [tripFilter, setTripFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -295,6 +329,41 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     (b: OperatorBooking) => toFilter === "all" || cityKey(b.arrivalCity) === toFilter,
     [toFilter],
   );
+  const matchesTrip = useCallback(
+    (b: OperatorBooking) => tripFilter === "all" || tripKeyOf(b) === tripFilter,
+    [tripFilter],
+  );
+
+  // Opțiunile filtrului per cursă (doar în arhivă): fiecare cursă cu numărul ei
+  // de rezervări, în ordinea API-ului (cele mai recente primele). Numărate pe
+  // setul trecut prin celelalte filtre, ca la dropdown-urile de localități.
+  const tripOptions = useMemo(() => {
+    if (scope !== "archived") return [] as CityOption[];
+    const byTrip = new Map<string, OperatorBooking[]>();
+    for (const b of bookings) {
+      if (!matchesBase(b)) continue;
+      const key = tripKeyOf(b);
+      const arr = byTrip.get(key);
+      if (arr) arr.push(b);
+      else byTrip.set(key, [b]);
+    }
+    const opts = [...byTrip.entries()].map(([value, items]) => {
+      const [day, coach] = value.split("|");
+      const dest = destSummary(items);
+      return {
+        value,
+        label: `${tripDayLabel(day)} · ${coach}${dest ? ` · ${dest}` : ""}`,
+        count: items.length,
+      };
+    });
+    // Cursa selectată rămâne în listă chiar dacă a rămas fără rezervări sub
+    // celelalte filtre — altfel select-ul ar arăta gol și n-ai mai putea ieși.
+    if (tripFilter !== "all" && !opts.some((o) => o.value === tripFilter)) {
+      const [day, coach] = tripFilter.split("|");
+      opts.push({ value: tripFilter, label: `${tripDayLabel(day)} · ${coach}`, count: 0 });
+    }
+    return opts;
+  }, [scope, bookings, matchesBase, tripFilter]);
 
   const fromCities = useMemo(() => {
     const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesTo(b)), (b) => b.departureCity, cityLabels);
@@ -315,8 +384,8 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   }, [bookings, matchesBase, matchesFrom, toFilter, cityLabels]);
 
   const filtered = useMemo(
-    () => bookings.filter((b) => matchesBase(b) && matchesFrom(b) && matchesTo(b)),
-    [bookings, matchesBase, matchesFrom, matchesTo],
+    () => bookings.filter((b) => matchesBase(b) && matchesFrom(b) && matchesTo(b) && matchesTrip(b)),
+    [bookings, matchesBase, matchesFrom, matchesTo, matchesTrip],
   );
 
   // Grupare pe ZIUĂ → AUTOCAR: operatorii gândesc în curse, nu în listă plată de
@@ -342,13 +411,17 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   // altfel filtrul ar rămâne blocat fără cale de întoarcere.
   const anyFilter =
     !!q.trim() || filter !== "all" || coachFilter !== "all" ||
-    sourceFilter !== "all" || fromFilter !== "all" || toFilter !== "all";
-  const showFrom = fromCities.length > 1 || fromFilter !== "all";
-  const showTo = toCities.length > 1 || toFilter !== "all";
+    sourceFilter !== "all" || fromFilter !== "all" || toFilter !== "all" ||
+    tripFilter !== "all";
+  // Localitățile rămân filtre pe Active; în Arhivă locul lor e luat de cursă.
+  const showFrom = scope === "active" && (fromCities.length > 1 || fromFilter !== "all");
+  const showTo = scope === "active" && (toCities.length > 1 || toFilter !== "all");
+  const showTrip = scope === "archived" && (tripOptions.length > 1 || tripFilter !== "all");
   const filteredTotals = useMemo(() => ({
     from: fromCities.reduce((n, c) => n + c.count, 0),
     to: toCities.reduce((n, c) => n + c.count, 0),
-  }), [fromCities, toCities]);
+    trip: tripOptions.reduce((n, c) => n + c.count, 0),
+  }), [fromCities, toCities, tripOptions]);
 
   const chips: Array<{ key: QuickFilter; label: string; count: number; tone?: "warn" | "danger" }> = scope === "active"
     ? [
@@ -449,11 +522,28 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
           </div>
         )}
 
-        {/* Filtre pe ÎMBARCARE + DESTINAȚIE + AUTOCAR + SURSĂ. Fiecare oraș își
-            arată numărul de rezervări („Cahul (12)"), calculat pe setul trecut
-            prin celelalte filtre — deci e exact ce vezi dacă îl alegi. */}
-        {!loading && !error && (showFrom || showTo || coaches.length > 1 || sources.length > 1) && (
+        {/* Active: filtre pe ÎMBARCARE + DESTINAȚIE; Arhivă: filtru PER CURSĂ
+            (zi + autocar). Plus AUTOCAR + SURSĂ peste tot. Fiecare opțiune își
+            arată numărul de rezervări („27 aug. · DAW 077 (26)"), calculat pe
+            setul trecut prin celelalte filtre — exact ce vezi dacă o alegi. */}
+        {!loading && !error && (showFrom || showTo || showTrip || coaches.length > 1 || sources.length > 1) && (
           <div className="flex flex-wrap items-center gap-2">
+            {showTrip && (
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
+                <select
+                  value={tripFilter}
+                  onChange={(e) => setTripFilter(e.target.value)}
+                  aria-label="Filtrează după cursă"
+                  className={selectCls}
+                >
+                  <option value="all">Toate cursele ({filteredTotals.trip})</option>
+                  {tripOptions.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label} ({c.count})</option>
+                  ))}
+                </select>
+              </div>
+            )}
             {showFrom && (
               <div className="flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" />
@@ -547,6 +637,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
               onClick={() => {
                 setQ(""); setFilter("all"); setCoachFilter("all");
                 setSourceFilter("all"); setFromFilter("all"); setToFilter("all");
+                setTripFilter("all");
               }}
               className="mt-3 text-xs font-semibold text-[color:var(--red-500)] hover:underline"
             >
