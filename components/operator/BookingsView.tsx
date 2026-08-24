@@ -12,6 +12,7 @@ import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
+import { destinations, moldovanCities } from "@/lib/data";
 import { TripPicker } from "@/components/booking/TripPicker";
 
 export type OperatorBooking = {
@@ -71,9 +72,26 @@ function cityName(raw: string): string {
   return (raw || "").split(",")[0].trim();
 }
 
-function cityKey(raw: string): string {
-  return cityName(raw).toLowerCase();
+/** Normalizare pentru chei: lowercase + fără diacritice — „Chisinau" și
+ *  „Chișinău" sunt același oraș, scrise diferit de surse diferite. */
+function normTxt(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
 }
+
+function cityKey(raw: string): string {
+  return normTxt(cityName(raw));
+}
+
+// Oraș cunoscut → țara lui (orașele EU din ofertă + toate localitățile MD).
+// Folosit ca etichetele curselor să arate ȚĂRI, nu adrese sau coduri poștale.
+const cityCountry: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const d of destinations) for (const c of d.cities) m.set(normTxt(c.name), d.name);
+  for (const c of moldovanCities) m.set(normTxt(c.name), "Moldova");
+  m.set("chisinau", "Moldova");
+  return m;
+})();
+const countryNames = new Set(["moldova", ...destinations.map((d) => normTxt(d.name))]);
 
 type CityOption = { value: string; label: string; count: number };
 
@@ -111,16 +129,23 @@ function tripKeyOf(b: OperatorBooking): string {
   return `${dayKey(b.departureDate)}|${b.coach || NO_COACH}`;
 }
 
-/** Destinațiile grupului, compact: „Anglia, Belgia +1". Pentru „Oraș, Țară"
- *  luăm țara (partea de după virgulă), altfel numele gol al localității. */
+/** Destinațiile grupului ca ȚĂRI („Anglia, Belgia"): orașele cunoscute se
+ *  mapează la țară, „Oraș, Țară" ia țara din coadă, iar adresele libere și
+ *  codurile poștale („8860", „BN14 8EN") nu intră deloc în etichetă. */
 function destSummary(items: OperatorBooking[]): string {
-  const set = new Set<string>();
+  const seen = new Map<string, string>();
   for (const b of items) {
     const raw = b.arrivalCity || "";
-    const tail = raw.includes(",") ? (raw.split(",").pop() || "").trim() : cityName(raw);
-    if (tail) set.add(tail);
+    const city = cityName(raw);
+    const tail = raw.includes(",") ? (raw.split(",").pop() || "").trim() : "";
+    const country =
+      cityCountry.get(normTxt(city)) ??
+      (tail && countryNames.has(normTxt(tail)) ? tail : undefined) ??
+      (tail ? cityCountry.get(normTxt(tail)) : undefined);
+    const label = country ?? (city && !/\d/.test(city) ? city : "");
+    if (label && !seen.has(normTxt(label))) seen.set(normTxt(label), label);
   }
-  const list = [...set].sort((a, b) => a.localeCompare(b, "ro"));
+  const list = [...seen.values()].sort((a, b) => a.localeCompare(b, "ro"));
   if (list.length === 0) return "";
   return list.slice(0, 2).join(", ") + (list.length > 2 ? ` +${list.length - 2}` : "");
 }
@@ -288,7 +313,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     for (const b of bookings) {
       for (const raw of [b.departureCity, b.arrivalCity]) {
         const label = cityName(raw);
-        if (label && !m.has(label.toLowerCase())) m.set(label.toLowerCase(), label);
+        if (label && !m.has(normTxt(label))) m.set(normTxt(label), label);
       }
     }
     return m;
@@ -413,10 +438,11 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     !!q.trim() || filter !== "all" || coachFilter !== "all" ||
     sourceFilter !== "all" || fromFilter !== "all" || toFilter !== "all" ||
     tripFilter !== "all";
-  // Cursa se filtrează peste tot (Active + Arhivă); localitățile rămân doar pe
-  // Active — în Arhivă locul lor e luat de cursă.
-  const showFrom = scope === "active" && (fromCities.length > 1 || fromFilter !== "all");
-  const showTo = scope === "active" && (toCities.length > 1 || toFilter !== "all");
+  // Cursa + localitățile se filtrează peste tot (Active și Arhivă) și se
+  // compun: alegi cursa, apoi orașul — numărătorile din dropdown-urile de
+  // localități sunt calculate în interiorul cursei alese.
+  const showFrom = fromCities.length > 1 || fromFilter !== "all";
+  const showTo = toCities.length > 1 || toFilter !== "all";
   const showTrip = tripOptions.length > 1 || tripFilter !== "all";
   const filteredTotals = useMemo(() => ({
     from: fromCities.reduce((n, c) => n + c.count, 0),
