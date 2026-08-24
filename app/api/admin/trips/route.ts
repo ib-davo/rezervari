@@ -1,8 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { runKey } from "@/lib/runSeats";
+
+type SeatCountBooking = {
+  status: string;
+  type: string;
+  adults: number | null;
+  children: number | null;
+  seatBookings: { tripId: string }[];
+};
+
+// Pasagerii pe care o rezervare îi ocupă pe o rulare: locurile alese pe
+// trip-urile rulării, altfel adulți + copii — identic cu `seatsTaken` din
+// lib/tripGrouping.ts, ca dashboardul să arate aceleași cifre ca panoul.
+function paxOnRun(b: SeatCountBooking, memberTripIds: Set<string>): number {
+  if (b.status === "cancelled") return 0;
+  if (b.type === "parcel" || b.type === "colet_la_cheie") return 0;
+  const seats = b.seatBookings.filter((s) => memberTripIds.has(s.tripId)).length;
+  return seats > 0 ? seats : Math.max(1, (b.adults ?? 0) + (b.children ?? 0));
+}
 
 export async function GET() {
   try {
+    const seatCountSelect = {
+      status: true,
+      type: true,
+      adults: true,
+      children: true,
+      seatBookings: { select: { tripId: true } },
+    } as const;
+
     const trips = await prisma.trip.findMany({
       orderBy: { departureAt: "asc" },
       include: {
@@ -13,9 +40,30 @@ export async function GET() {
           },
         },
         bus: true,
-        bookings: { select: { price: true, status: true } },
+        bookings: { select: { ...seatCountSelect, price: true } },
+        returnBookings: { select: seatCountSelect },
       },
     });
+
+    // Ocuparea pe RULAREA fizică (toate trip-urile aceluiași autobuz din aceeași
+    // zi UTC), nu doar pe trip-ul rutei curente: pasagerul spre London ocupă
+    // autocarul și pentru cursa-soră spre Boston. Fără asta, dashboardul arăta
+    // 21/54 pe o cursă când autocarul avea deja 48 de oameni.
+    const runMemberTrips = new Map<string, Set<string>>();
+    for (const t of trips) {
+      const k = runKey(t.busId, t.departureAt);
+      if (!runMemberTrips.has(k)) runMemberTrips.set(k, new Set());
+      runMemberTrips.get(k)!.add(t.id);
+    }
+    const runSeatsTaken = new Map<string, number>();
+    for (const t of trips) {
+      const k = runKey(t.busId, t.departureAt);
+      const members = runMemberTrips.get(k)!;
+      let taken = runSeatsTaken.get(k) ?? 0;
+      for (const b of t.bookings) taken += paxOnRun(b, members);
+      for (const b of t.returnBookings) taken += paxOnRun(b, members);
+      runSeatsTaken.set(k, taken);
+    }
 
     return NextResponse.json({
       success: true,
@@ -31,7 +79,7 @@ export async function GET() {
           arrivalAt: t.arrivalAt.toISOString(),
           status: t.status,
           capacity: t.capacity,
-          booked: confirmed.length,
+          booked: runSeatsTaken.get(runKey(t.busId, t.departureAt)) ?? 0,
           revenue: confirmed.reduce((s, b) => s + b.price, 0),
         };
       }),
