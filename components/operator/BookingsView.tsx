@@ -153,8 +153,8 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [fromFilter, setFromFilter] = useState<string>("all");
   const [toFilter, setToFilter] = useState<string>("all");
-  // Arhivă: filtrare PER CURSĂ (zi + autocar), nu pe localități — operatorii
-  // caută „cursa din 27 aug", nu orașul.
+  // Filtrare PER CURSĂ (zi + autocar) — pe Active ȘI pe Arhivă, inclusiv
+  // cursele aflate încă pe drum: operatorii caută „cursa din 27 aug", nu orașul.
   const [tripFilter, setTripFilter] = useState<string>("all");
   const [live, setLive] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -334,14 +334,14 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     [tripFilter],
   );
 
-  // Opțiunile filtrului per cursă (doar în arhivă): fiecare cursă cu numărul ei
-  // de rezervări, în ordinea API-ului (cele mai recente primele). Numărate pe
-  // setul trecut prin celelalte filtre, ca la dropdown-urile de localități.
+  // Opțiunile filtrului per cursă: fiecare cursă cu numărul ei de rezervări,
+  // în ordinea API-ului (pe Active cele mai apropiate primele, pe Arhivă cele
+  // mai recente). Numărate pe setul trecut prin CELELALTE filtre, ca la
+  // dropdown-urile de localități.
   const tripOptions = useMemo(() => {
-    if (scope !== "archived") return [] as CityOption[];
     const byTrip = new Map<string, OperatorBooking[]>();
     for (const b of bookings) {
-      if (!matchesBase(b)) continue;
+      if (!matchesBase(b) || !matchesFrom(b) || !matchesTo(b)) continue;
       const key = tripKeyOf(b);
       const arr = byTrip.get(key);
       if (arr) arr.push(b);
@@ -363,25 +363,25 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
       opts.push({ value: tripFilter, label: `${tripDayLabel(day)} · ${coach}`, count: 0 });
     }
     return opts;
-  }, [scope, bookings, matchesBase, tripFilter]);
+  }, [bookings, matchesBase, matchesFrom, matchesTo, tripFilter]);
 
   const fromCities = useMemo(() => {
-    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesTo(b)), (b) => b.departureCity, cityLabels);
+    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesTo(b) && matchesTrip(b)), (b) => b.departureCity, cityLabels);
     // Orașul selectat rămâne în listă chiar dacă a rămas fără rezervări sub
     // celelalte filtre — altfel select-ul ar arăta gol și n-ai mai putea ieși.
     if (fromFilter !== "all" && !opts.some((o) => o.value === fromFilter)) {
       opts.push({ value: fromFilter, label: cityLabels.get(fromFilter) ?? fromFilter, count: 0 });
     }
     return opts;
-  }, [bookings, matchesBase, matchesTo, fromFilter, cityLabels]);
+  }, [bookings, matchesBase, matchesTo, matchesTrip, fromFilter, cityLabels]);
 
   const toCities = useMemo(() => {
-    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesFrom(b)), (b) => b.arrivalCity, cityLabels);
+    const opts = cityOptions(bookings.filter((b) => matchesBase(b) && matchesFrom(b) && matchesTrip(b)), (b) => b.arrivalCity, cityLabels);
     if (toFilter !== "all" && !opts.some((o) => o.value === toFilter)) {
       opts.push({ value: toFilter, label: cityLabels.get(toFilter) ?? toFilter, count: 0 });
     }
     return opts;
-  }, [bookings, matchesBase, matchesFrom, toFilter, cityLabels]);
+  }, [bookings, matchesBase, matchesFrom, matchesTrip, toFilter, cityLabels]);
 
   const filtered = useMemo(
     () => bookings.filter((b) => matchesBase(b) && matchesFrom(b) && matchesTo(b) && matchesTrip(b)),
@@ -413,10 +413,11 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     !!q.trim() || filter !== "all" || coachFilter !== "all" ||
     sourceFilter !== "all" || fromFilter !== "all" || toFilter !== "all" ||
     tripFilter !== "all";
-  // Localitățile rămân filtre pe Active; în Arhivă locul lor e luat de cursă.
+  // Cursa se filtrează peste tot (Active + Arhivă); localitățile rămân doar pe
+  // Active — în Arhivă locul lor e luat de cursă.
   const showFrom = scope === "active" && (fromCities.length > 1 || fromFilter !== "all");
   const showTo = scope === "active" && (toCities.length > 1 || toFilter !== "all");
-  const showTrip = scope === "archived" && (tripOptions.length > 1 || tripFilter !== "all");
+  const showTrip = tripOptions.length > 1 || tripFilter !== "all";
   const filteredTotals = useMemo(() => ({
     from: fromCities.reduce((n, c) => n + c.count, 0),
     to: toCities.reduce((n, c) => n + c.count, 0),
