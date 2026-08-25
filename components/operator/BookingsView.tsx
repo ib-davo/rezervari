@@ -936,10 +936,13 @@ function BookingCard({
               </ActionBtn>
             )
           )}
-          {scope === "active" && !cancelled && (
+          {scope === "active" && (
+            // Pe anulate: „Reprogramare" — clientul s-a răzgândit și vrea altă
+            // cursă. Același flux (dată + loc, datele lui rămân), iar salvarea
+            // REACTIVEAZĂ rezervarea (vezi ruta de reschedule).
             <ActionBtn onClick={() => setRescheduling(true)}
               className="border border-[color:var(--navy-200,rgba(20,58,122,0.25))] text-[color:var(--navy-700)]">
-              <CalendarDays className="h-3.5 w-3.5" /> Modifică data/locul
+              <CalendarDays className="h-3.5 w-3.5" /> {cancelled ? "Reprogramare" : "Modifică data/locul"}
             </ActionBtn>
           )}
           {scope === "active" && !cancelled && (
@@ -1013,6 +1016,7 @@ function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose
   const [rSeats, setRSeats] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const cancelled = b.status === "cancelled";
 
   useEffect(() => {
     fetch("/api/public/cities")
@@ -1043,7 +1047,7 @@ function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose
       });
       const d = await res.json();
       if (d.success) {
-        setMsg({ ok: true, text: `Modificat. ${d.emailSent ? "Email de confirmare trimis clientului." : "(emailul n-a putut fi trimis)"}` });
+        setMsg({ ok: true, text: `${d.reactivated ? "Reprogramat — rezervarea a fost reactivată." : "Modificat."} ${d.emailSent ? "Email de confirmare trimis clientului." : "(emailul n-a putut fi trimis)"}` });
         onReload();
         setTimeout(onClose, 1400);
       } else {
@@ -1060,12 +1064,17 @@ function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
       <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between gap-2">
-          <h3 className="text-base font-bold text-[color:var(--navy-900)]">Modifică data & locul</h3>
+          <h3 className="text-base font-bold text-[color:var(--navy-900)]">{cancelled ? "Reprogramare (rezervare anulată)" : "Modifică data & locul"}</h3>
           <button onClick={onClose} className="rounded-md p-1 text-[color:var(--ink-500)] hover:bg-[color:var(--ink-50)]" aria-label="Închide"><X className="h-4 w-4" /></button>
         </div>
         <div className="mb-3 text-sm text-[color:var(--ink-500)]">
           {b.firstName} · {b.departureCity} → {b.arrivalCity} · {pax} {pax === 1 ? "loc" : "locuri"}{isRound ? " · tur-retur" : ""}
         </div>
+        {cancelled && (
+          <div className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+            La salvare rezervarea se reactivează automat (Confirmată) pe noua cursă — datele pasagerului rămân aceleași.
+          </div>
+        )}
         {originId && destId ? (
           <>
             <TripPicker
@@ -1104,7 +1113,7 @@ function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose
           disabled={!canSubmit}
           className="mt-4 w-full rounded-full bg-[color:var(--red-500)] px-4 py-2.5 text-sm font-bold text-white active:scale-95 transition-transform disabled:opacity-50"
         >
-          {busy ? "Se salvează…" : "Confirmă (trimite email clientului)"}
+          {busy ? "Se salvează…" : cancelled ? "Reprogramează (trimite email clientului)" : "Confirmă (trimite email clientului)"}
         </button>
       </div>
     </div>

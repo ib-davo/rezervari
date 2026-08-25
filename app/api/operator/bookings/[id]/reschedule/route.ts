@@ -41,7 +41,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     });
     if (!booking) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
-    if (booking.status === "cancelled") return NextResponse.json({ success: false, error: "Rezervarea e anulată" }, { status: 400 });
+    // O rezervare ANULATĂ se poate reprograma: clientul sună înapoi „vreau
+    // săptămâna viitoare". Reprogramarea o reactivează (status confirmed) —
+    // locurile vechi oricum au fost eliberate la anulare, cele noi se aleg acum.
+    const wasCancelled = booking.status === "cancelled";
 
     const newTrip = await prisma.trip.findUnique({
       where: { id: newTripId },
@@ -94,9 +97,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           tripId: newTripId,
           departureDate: newTrip.departureAt,
           ...(newReturnTrip ? { returnTripId: newReturnTrip.id, returnDate: newReturnTrip.departureAt } : {}),
+          // Reactivare la reprogramarea unei anulate — și passengerResponse, ca
+          // dropdown-ul „Stare" să nu rămână pe „Anulat" pe o rezervare activă.
+          ...(wasCancelled ? { status: "confirmed", passengerResponse: "confirmed", passengerResponseAt: new Date() } : {}),
         },
       });
     });
+
+    // La reactivare: retrage emailul de ANULARE încă netrimis din coadă —
+    // altfel cron-ul l-ar livra deși rezervarea e din nou confirmată.
+    if (wasCancelled) {
+      await prisma.emailJob
+        .updateMany({ where: { bookingId: id, type: "cancellation", status: "queued", sentAt: null }, data: { status: "cancelled" } })
+        .catch(() => {});
+    }
 
     // Reprogramează reminderele + cererea de recenzie (cele vechi erau calculate
     // pe data veche — altfel „Cum a fost călătoria?" pleca ÎNAINTE de călătorie).
@@ -127,7 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         .catch(() => {});
     }
 
-    return NextResponse.json({ success: true, newDate: newTrip.departureAt, seats: seatNumbers, emailSent });
+    return NextResponse.json({ success: true, newDate: newTrip.departureAt, seats: seatNumbers, emailSent, reactivated: wasCancelled });
   } catch (error) {
     console.error("operator/bookings/[id]/reschedule", error);
     return NextResponse.json({ success: false, error: "Eroare la reprogramare" }, { status: 500 });
