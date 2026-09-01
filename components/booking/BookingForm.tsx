@@ -205,7 +205,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const [dupRef, setDupRef] = useState<string | null>(null);
   const [dupRefCopied, setDupRefCopied] = useState(false);
   const [consent, setConsent] = useState(false);
-  const [payMethod, setPayMethod] = useState<"card" | "cash">("card");
+  const [payMethod, setPayMethod] = useState<"card" | "cash">("cash");
   // Preț manual (doar operator/embedded) — suprascrie totalul calculat.
   const [customPrice, setCustomPrice] = useState<string>("");
   // Text liber pe bilet (doar operator): suprascrie plecarea/destinația salvate —
@@ -1814,29 +1814,6 @@ function PaymentStep({
         <label
           className={cn(
             "flex cursor-pointer items-center gap-3 rounded-xl p-4 transition-colors",
-            payMethod === "card"
-              ? "border-2 border-[color:var(--red-500)] bg-[color:var(--red-50)]"
-              : "border border-[color:var(--ink-200)] bg-white hover:border-[color:var(--navy-500)]"
-          )}
-        >
-          <input
-            type="radio"
-            name="pay"
-            checked={payMethod === "card"}
-            onChange={() => onPayMethod("card")}
-            className="accent-[color:var(--red-500)]"
-          />
-          <CreditCard className="h-5 w-5 text-[color:var(--red-500)]" />
-          <div>
-            <div className="font-semibold text-[color:var(--navy-900)]">Card la {moment}</div>
-            <div className="text-xs text-[color:var(--ink-500)]">
-              Visa, MasterCard, Maestro — la {mode === "bilet" ? "șofer" : "livrare"}
-            </div>
-          </div>
-        </label>
-        <label
-          className={cn(
-            "flex cursor-pointer items-center gap-3 rounded-xl p-4 transition-colors",
             payMethod === "cash"
               ? "border-2 border-[color:var(--red-500)] bg-[color:var(--red-50)]"
               : "border border-[color:var(--ink-200)] bg-white hover:border-[color:var(--navy-500)]"
@@ -1854,6 +1831,29 @@ function PaymentStep({
             <div className="font-semibold text-[color:var(--navy-900)]">Cash la {moment}</div>
             <div className="text-xs text-[color:var(--ink-500)]">
               Numerar — în Lei, Euro sau GBP
+            </div>
+          </div>
+        </label>
+        <label
+          className={cn(
+            "flex cursor-pointer items-center gap-3 rounded-xl p-4 transition-colors",
+            payMethod === "card"
+              ? "border-2 border-[color:var(--red-500)] bg-[color:var(--red-50)]"
+              : "border border-[color:var(--ink-200)] bg-white hover:border-[color:var(--navy-500)]"
+          )}
+        >
+          <input
+            type="radio"
+            name="pay"
+            checked={payMethod === "card"}
+            onChange={() => onPayMethod("card")}
+            className="accent-[color:var(--red-500)]"
+          />
+          <CreditCard className="h-5 w-5 text-[color:var(--red-500)]" />
+          <div>
+            <div className="font-semibold text-[color:var(--navy-900)]">Card la {moment}</div>
+            <div className="text-xs text-[color:var(--ink-500)]">
+              Visa, MasterCard, Maestro — la {mode === "bilet" ? "șofer" : "livrare"}
             </div>
           </div>
         </label>
