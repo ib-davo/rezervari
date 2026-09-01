@@ -226,10 +226,10 @@ export const mdPassengerStops: Record<string, MdStop[]> = {
   germania: BELGIA_STOPS,
 };
 
-// Opriri scoase din ofertă (operatorul le-a scos de pe davo.md pe 10.08.2026):
-// nu se mai vând pasagerilor pe NICIO țară, dar rămân în liste ca biletele deja
-// emise să-și păstreze ora corectă prin mdStopOffset.
-const RETIRED_PASSENGER_STOPS = new Set(["Orhei"]);
+// Opriri scoase din ofertă: nu se mai vând pasagerilor pe NICIO țară, dar rămân
+// în liste ca biletele deja emise să-și păstreze ora corectă prin mdStopOffset.
+// (Orhei a fost scos pe 10.08.2026 și readus pe 01.09.2026.)
+const RETIRED_PASSENGER_STOPS = new Set<string>([]);
 
 /** Orașele MD (nume) oferite pentru o țară destinație pe cursele de pasageri. */
 export function mdCitiesFor(countrySlug: string | null | undefined): string[] | null {
