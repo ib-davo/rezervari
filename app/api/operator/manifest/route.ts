@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
-import { buildTripGroups } from "@/lib/tripGrouping";
-import { computeManifest, currencySymbol, fmtTotals } from "@/lib/manifestRows";
+import { buildTripGroups, BOOKING_SELECT, countryOf } from "@/lib/tripGrouping";
+import { computeManifest, currencySymbol, fmtTotals, type ManifestBooking } from "@/lib/manifestRows";
+import { prisma } from "@/lib/prisma";
+import { busPlateForRun } from "@/lib/busSchedule";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,13 +19,112 @@ const dtFmt = new Intl.DateTimeFormat("ro-RO", {
 });
 function cap(s: string) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
+// Exportul are nevoie doar de câmpurile astea — le satisfac și grupurile active
+// (buildTripGroups) și cele reconstruite din arhivă (buildArchiveGroup).
+type ManifestGroup = {
+  from: string;
+  to: string;
+  busLabel: string | null;
+  busPlate: string | null;
+  departureAt: string;
+  capacity: number | null;
+  dayKey: string;
+  tripIds: string[];
+  bookings: ManifestBooking[];
+};
+
+// Ziua cursei în fusul operatorilor (Moldova) — aceeași cheie pe care o
+// calculează arhiva din browser (operatorii lucrează din Moldova; serverul
+// Vercel e pe UTC, deci nu putem folosi ziua locală a serverului).
+const chisinauDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Chisinau", year: "numeric", month: "2-digit", day: "2-digit",
+});
+
+/** Cursă din ARHIVĂ, reconstruită după zi + autocar — buildTripGroups acoperă
+ *  doar fereastra activă, dar foaia de parcurs trebuie descărcabilă și după
+ *  încheierea cursei (corecturi târzii → documente refăcute corect). Autocarul
+ *  per rezervare = același lanț ca /api/operator/bookings (manual → cursă reală
+ *  → programul recurent), deci grupul e exact ce vede operatorul în arhivă. */
+async function buildArchiveGroup(day: string, coachPlate: string): Promise<ManifestGroup | null> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [y, m, d] = day.split("-").map(Number);
+  // Interval UTC larg (±1 zi) în jurul zilei cerute; filtrarea exactă se face
+  // pe cheia de zi Europe/Chisinau, ca în listă.
+  const start = new Date(Date.UTC(y, m - 1, d - 1));
+  const end = new Date(Date.UTC(y, m - 1, d + 2));
+  const all = await prisma.booking.findMany({
+    where: { departureDate: { gte: start, lt: end } },
+    select: BOOKING_SELECT,
+    orderBy: { departureDate: "asc" },
+    take: 2000,
+  });
+  const sameDay = all.filter((b) => chisinauDay.format(b.departureDate) === day);
+
+  const manualIds = [...new Set(sameDay.map((b) => b.manualBusId).filter((x): x is string => !!x))];
+  const tripIds = [...new Set(sameDay.map((b) => b.tripId).filter((x): x is string => !!x))];
+  const [manualBuses, trips] = await Promise.all([
+    manualIds.length ? prisma.bus.findMany({ where: { id: { in: manualIds } }, select: { id: true, plate: true } }) : Promise.resolve([]),
+    tripIds.length ? prisma.trip.findMany({ where: { id: { in: tripIds } }, select: { id: true, bus: { select: { plate: true } } } }) : Promise.resolve([]),
+  ]);
+  const plateById = new Map(manualBuses.map((b) => [b.id, b.plate]));
+  const plateByTrip = new Map(trips.filter((t) => t.bus).map((t) => [t.id, t.bus!.plate]));
+  const coachOf = (b: (typeof sameDay)[number]) =>
+    (b.manualBusId && plateById.get(b.manualBusId)) ||
+    (b.tripId && plateByTrip.get(b.tripId)) ||
+    busPlateForRun(new Date(b.departureDate), countryOf(b.departureCity), countryOf(b.arrivalCity)) ||
+    null;
+  const list = sameDay.filter((b) => coachOf(b) === (coachPlate || null));
+  if (list.length === 0) return null;
+
+  // Capetele rutei ca țări (Moldova → hubul Chișinău), pentru antetul foii.
+  const side = (pick: (b: (typeof list)[number]) => string) => {
+    const seen = new Set<string>();
+    for (const b of list) {
+      const raw = pick(b);
+      const c = countryOf(raw) || raw.split(",")[0].trim();
+      if (c) seen.add(/moldova/i.test(c) ? "Chișinău" : c);
+    }
+    const arr = [...seen].sort((a, b) => a.localeCompare(b, "ro"));
+    return arr.slice(0, 3).join(", ") + (arr.length > 3 ? ` +${arr.length - 3}` : "");
+  };
+  const bus = coachPlate
+    ? await prisma.bus.findFirst({ where: { plate: coachPlate }, select: { label: true, plate: true, totalSeats: true } })
+    : null;
+  const departureAt = list.reduce(
+    (min, b) => (b.departureDate < min ? b.departureDate : min),
+    list[0].departureDate
+  );
+  return {
+    from: side((b) => b.departureCity),
+    to: side((b) => b.arrivalCity),
+    busLabel: bus?.label ?? (coachPlate || null),
+    busPlate: bus?.plate ?? null,
+    departureAt: departureAt.toISOString(),
+    capacity: bus?.totalSeats ?? null,
+    dayKey: day,
+    // Locurile din foaie = locurile de pe cursele de DUS ale zilei (fiecare
+    // rezervare apare în arhivă pe ziua plecării ei).
+    tripIds,
+    bookings: list,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const session = await verifyOperatorToken(req.cookies.get(OPERATOR_COOKIE)?.value);
   if (!session) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-  const key = new URL(req.url).searchParams.get("key") || "";
-  const { groups } = await buildTripGroups();
-  const g = groups.find((x) => x.key === key);
+  const params = new URL(req.url).searchParams;
+  const key = params.get("key") || "";
+  const day = params.get("day");
+  const coach = params.get("coach");
+
+  let g: ManifestGroup | null | undefined;
+  if (day !== null && coach !== null) {
+    g = await buildArchiveGroup(day, coach);
+  } else {
+    const { groups } = await buildTripGroups();
+    g = groups.find((x) => x.key === key);
+  }
   if (!g) return NextResponse.json({ success: false, error: "Cursă negăsită" }, { status: 404 });
 
   const { rows, totalPax, totals } = computeManifest(g);

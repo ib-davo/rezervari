@@ -5,7 +5,10 @@ import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus, MapPin, Flag,
+  FileSpreadsheet, Printer,
 } from "lucide-react";
+import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
+import { ARCHIVE_EDIT_MS } from "@/lib/activeWindow";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
 import { ActionToast } from "@/components/operator/ActionToast";
@@ -132,10 +135,10 @@ function tripKeyOf(b: OperatorBooking): string {
 /** Destinațiile grupului ca ȚĂRI („Anglia, Belgia"): orașele cunoscute se
  *  mapează la țară, „Oraș, Țară" ia țara din coadă, iar adresele libere și
  *  codurile poștale („8860", „BN14 8EN") nu intră deloc în etichetă. */
-function destSummary(items: OperatorBooking[]): string {
+function destSummary(items: OperatorBooking[], pick: (b: OperatorBooking) => string = (b) => b.arrivalCity): string {
   const seen = new Map<string, string>();
   for (const b of items) {
-    const raw = b.arrivalCity || "";
+    const raw = pick(b) || "";
     const city = cityName(raw);
     const tail = raw.includes(",") ? (raw.split(",").pop() || "").trim() : "";
     const country =
@@ -148,6 +151,37 @@ function destSummary(items: OperatorBooking[]): string {
   const list = [...seen.values()].sort((a, b) => a.localeCompare(b, "ro"));
   if (list.length === 0) return "";
   return list.slice(0, 2).join(", ") + (list.length > 2 ? ` +${list.length - 2}` : "");
+}
+
+/** Foaia de parcurs PDF pentru o cursă din ARHIVĂ. Grupurile active vin gata
+ *  construite din buildTripGroups (TripsView); aici cursa s-a încheiat, deci o
+ *  reconstruim din rezervările afișate (zi + autocar) — fix același set pe care
+ *  îl descarcă și Excelul de arhivă (/api/operator/manifest?day&coach). */
+function openArchivePdf(day: string, coach: string, items: OperatorBooking[]) {
+  const g: TripGroup = {
+    kind: "trip",
+    key: `${day}|${coach}`,
+    busId: null,
+    busLabel: coach === NO_COACH ? null : coach,
+    busPlate: null,
+    from: destSummary(items, (b) => b.departureCity) || "—",
+    to: destSummary(items) || "—",
+    departureAt: items.reduce((min, b) => (b.departureDate < min ? b.departureDate : min), items[0].departureDate),
+    arrivalAt: null,
+    capacity: null,
+    seatsTaken: 0,
+    dayKey: day,
+    multi: false,
+    add: {},
+    // Locurile din foaie = locurile de pe cursele de DUS ale zilei (fiecare
+    // rezervare stă în arhivă pe ziua plecării ei).
+    tripIds: [...new Set(items.map((b) => b.tripId).filter((x): x is string => !!x))],
+    bookings: items,
+  };
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(buildManifestHtml(g));
+  w.document.close();
 }
 
 function dayLabel(key: string): string {
@@ -691,10 +725,28 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
                 <div className="space-y-3">
                   {coachGroups.map(([coach, items]) => (
                     <div key={coach}>
-                      <div className="mb-1.5 flex items-center gap-1.5">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                         <Bus className="h-3.5 w-3.5 text-[color:var(--red-500)]" />
                         <span className="text-[12px] font-bold text-[color:var(--navy-900)]">{coach}</span>
                         <span className="text-[11px] font-semibold text-[color:var(--ink-400)]">· {items.length}</span>
+                        {/* Foaia de parcurs se descarcă și DUPĂ încheierea cursei —
+                            corecturile târzii din arhivă ajung în documente refăcute. */}
+                        {scope === "archived" && (
+                          <span className="ml-auto flex items-center gap-1.5">
+                            <a
+                              href={`/api/operator/manifest?day=${key}&coach=${encodeURIComponent(coach === NO_COACH ? "" : coach)}`}
+                              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+                            >
+                              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
+                            </a>
+                            <button
+                              onClick={() => openArchivePdf(key, coach, items)}
+                              className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
+                            >
+                              <Printer className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> PDF
+                            </button>
+                          </span>
+                        )}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                         {items.map((b) => (
@@ -777,6 +829,12 @@ function BookingCard({
   const ret = b.returnDate ? new Date(b.returnDate) : null;
   const cancelled = b.status === "cancelled";
   const state = stateOf(b);
+  // Fereastra de CORECTURĂ din Arhivă: încă ARCHIVE_EDIT_DAYS zile după ultima
+  // etapă a cursei, operatorul poate marca ce a uitat în timpul cursei („Achitat",
+  // starea, o editare) și re-descarcă documentele corecte. Serverul aplică
+  // același termen pe ruta de editare.
+  const fixDeadline = (ret ?? dep).getTime() + ARCHIVE_EDIT_MS;
+  const canFix = scope === "active" || Date.now() <= fixDeadline;
   // Locurile, separate dus/retur — clientul întreabă mereu "ce loc am?".
   const seats = b.seatBookings ?? [];
   const outboundSeats = seats.filter((s) => s.tripId === b.tripId).map((s) => s.seatNumber);
@@ -870,7 +928,7 @@ function BookingCard({
         <span className="text-[10px] font-bold uppercase tracking-wide text-[color:var(--ink-400)]">Stare</span>
         <StatusSelect
           value={cancelled ? "cancelled" : state}
-          readOnly={scope !== "active" || cancelled}
+          readOnly={!canFix || cancelled}
           hasEmail={!!(b.email || "").trim()}
           title={b.boardedAt && b.boardedBy ? `Îmbarcat de ${b.boardedBy}` : undefined}
           onChange={(next) => onAct(b.id, statePatch(next, !!b.boardedAt))}
@@ -945,7 +1003,7 @@ function BookingCard({
               <CalendarDays className="h-3.5 w-3.5" /> {cancelled ? "Reprogramare" : "Modifică data/locul"}
             </ActionBtn>
           )}
-          {scope === "active" && !cancelled && (
+          {canFix && !cancelled && (
             <ActionBtn onClick={() => setEditOpen(true)}
               className="border border-[color:var(--navy-200,rgba(20,58,122,0.25))] text-[color:var(--navy-700)]">
               <Pencil className="h-3.5 w-3.5" /> Editează
@@ -971,7 +1029,7 @@ function BookingCard({
               </ActionBtn>
             )
           )}
-          {scope === "active" && b.paymentStatus !== "paid" && (
+          {canFix && b.paymentStatus !== "paid" && (
             <ActionBtn busy={busy === "paid"} onClick={() => run("paid", { paymentStatus: "paid" })}
               className="border border-[color:var(--ink-200)] text-[color:var(--navy-900)]">
               Achitat
@@ -987,6 +1045,11 @@ function BookingCard({
               className="border border-[color:var(--ink-200)] text-[color:var(--ink-500)]">
               Dezarhivează
             </ActionBtn>
+          )}
+          {scope === "archived" && canFix && !cancelled && (
+            <span className="w-full text-[10px] font-semibold text-[color:var(--ink-400)]">
+              Corecturi permise până pe {fmtDate.format(new Date(fixDeadline))} — apoi doar citire.
+            </span>
           )}
         </div>
       )}

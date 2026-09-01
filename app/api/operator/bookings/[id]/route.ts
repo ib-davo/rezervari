@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyOperatorToken, OPERATOR_COOKIE } from "@/lib/operatorSession";
 import { cancelForBooking, enqueueRemindersOnly, sendCancellationNow } from "@/lib/emailQueue";
 import { seatDataForBooking } from "@/lib/operatorSeats";
-import { activeCutoff } from "@/lib/activeWindow";
+import { activeCutoff, archiveEditDeadline, ARCHIVE_EDIT_DAYS } from "@/lib/activeWindow";
 import { findDuplicateByPhone, duplicateMessageForOperator, phoneKey, passengerKeys, type DuplicateBooking } from "@/lib/duplicatePhone";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +45,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       },
     });
     if (!booking) return NextResponse.json({ success: false, error: "Rezervare inexistentă" }, { status: 404 });
-    if (booking.archivedAt) return NextResponse.json({ success: false, error: "Rezervarea e arhivată" }, { status: 400 });
+    // Arhiva NU mai blochează editarea de una singură: operatorul are o fereastră
+    // de corectură (ARCHIVE_EDIT_DAYS zile după ultima etapă a cursei) în care
+    // marchează ce a uitat în timpul cursei și re-descarcă documentele corecte.
+    // După termen, rezervarea devine doar-citire.
+    const lastLegDay = booking.returnDate ?? booking.departureDate;
+    if (new Date() > archiveEditDeadline(lastLegDay)) {
+      return NextResponse.json(
+        { success: false, error: `Termenul de corectură (${ARCHIVE_EDIT_DAYS} zile după cursă) a trecut — rezervarea nu se mai editează.` },
+        { status: 400 }
+      );
+    }
     if (booking.status === "cancelled") {
       return NextResponse.json({ success: false, error: "Rezervarea e anulată — nu se mai editează" }, { status: 400 });
     }

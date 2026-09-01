@@ -33,3 +33,15 @@ export function pastLegWhere(cutoff: Date) {
     { returnDate: { not: null, lt: cutoff } },
   ];
 }
+
+// Fereastra de CORECTURĂ din Arhivă: după ce cursa s-a încheiat, operatorul mai
+// are ARCHIVE_EDIT_DAYS zile să repare ce a uitat în timpul cursei (marchează
+// „Achitat", corectează un nume/preț), ca documentele descărcate din arhivă să
+// iasă corecte. După termen, rezervarea devine doar-citire.
+export const ARCHIVE_EDIT_DAYS = 7;
+export const ARCHIVE_EDIT_MS = ARCHIVE_EDIT_DAYS * 24 * 60 * 60 * 1000;
+
+/** Până când se mai acceptă corecturi — ultima etapă a cursei + fereastra. */
+export function archiveEditDeadline(lastLeg: Date): Date {
+  return new Date(lastLeg.getTime() + ARCHIVE_EDIT_MS);
+}
