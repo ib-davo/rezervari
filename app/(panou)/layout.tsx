@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { GeoProvider } from "@/components/geo/GeoProvider";
+import { getGeoSafe } from "@/lib/geo";
 
 // Panoul e instalat pe telefoanele operatorilor ca aplicație („Adaugă pe ecranul
 // principal"). Fără manifest, iconița era doar un shortcut de browser: după ce
@@ -26,6 +28,9 @@ export const viewport: Viewport = {
   themeColor: "#0b2653",
 };
 
-export default function PanouRootLayout({ children }: { children: React.ReactNode }) {
-  return children;
+export default async function PanouRootLayout({ children }: { children: React.ReactNode }) {
+  // Orașele (DB, editate pe davo.md/admin → Orașe) pentru formularul de
+  // rezervare din panou, editarea rezervărilor și etichetele curselor.
+  const geo = await getGeoSafe();
+  return <GeoProvider geo={geo}>{children}</GeoProvider>;
 }

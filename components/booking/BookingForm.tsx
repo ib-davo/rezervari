@@ -23,7 +23,17 @@ import {
   Search,
   Copy,
 } from "lucide-react";
-import { destinations, moldovanCities, contactInfo, mdCitiesFor, mdStopOffset, offRouteMdCity } from "@/lib/data";
+import { destinations, contactInfo } from "@/lib/data";
+import { useGeo } from "@/components/geo/GeoProvider";
+import {
+  activeCities,
+  findCountryByName,
+  isMoldovanCity,
+  mdCitiesForSlug,
+  mdStopOffsetMin,
+  mdStopsFor,
+  offRouteMdCity,
+} from "@/lib/geoShared";
 import { seatSurcharge } from "@/lib/pricing";
 import { CountryCityPicker, complementHide, getCountryFromValue } from "@/components/booking/CountryCityPicker";
 import { useLocale } from "@/lib/i18n/client";
@@ -90,8 +100,9 @@ function MdStopNote({
   tripInfo: PublicTrip | null;
   kind: "board" | "arrive";
 }) {
+  const geo = useGeo();
   if (!countrySlug || !tripInfo || !cityName) return null;
-  const offset = mdStopOffset(countrySlug, cityName);
+  const offset = mdStopOffsetMin(geo, cityName);
   const lower = cityName.trim().toLowerCase();
   if (offset === 0 || lower === "chișinău" || lower === "chisinau") return null;
   const iso = kind === "board" ? tripInfo.departureAt : tripInfo.arrivalAt;
@@ -127,6 +138,8 @@ export default BookingForm;
 function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   const params = useSearchParams();
   const locale = useLocale();
+  // Orașele (DB, davo.md/admin → Orașe) — aceeași listă ca pe site-ul public.
+  const geo = useGeo();
   const initialMode = (params.get("mode") as Mode) === "colet" ? "colet" : "bilet";
 
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -153,13 +166,8 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
   // Detectăm direcția inițială din `from` ca să gestionăm corect cazul când
   // userul vine de pe Hero cu un oraș european (după ce a făcut swap acolo).
   const [direction, setDirection] = useState<"md-to-eu" | "eu-to-md">(() => {
-    const f = initialFrom.split(",")[0].trim().toLowerCase();
-    // Chișinău e hub-ul implicit MD, dar nu e în `moldovanCities` (lista de
-    // opriri intermediare), așa că îl tratăm explicit ca origine MD.
-    if (f === "chișinău" || f === "chisinau") return "md-to-eu";
-    return moldovanCities.some((c) => c.name.toLowerCase() === f)
-      ? "md-to-eu"
-      : "eu-to-md";
+    const f = initialFrom.split(",")[0].trim();
+    return isMoldovanCity(geo, f) ? "md-to-eu" : "eu-to-md";
   });
   const [trip, setTrip] = useState<"one" | "return">("one");
   const [passengers, setPassengers] = useState(initialSeats.length || 1);
@@ -403,10 +411,10 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
 
   const destinationCities = useMemo(
     () =>
-      destinations.flatMap((d) =>
-        d.cities.map((c) => ({ name: c.name, country: d.name, slug: d.slug }))
+      geo.countries.flatMap((d) =>
+        activeCities(d).map((c) => ({ name: c.name, country: d.name, slug: d.slug }))
       ),
-    []
+    [geo]
   );
 
   // Țara/steagul se derivă din câmpul european — la EU→MD, asta e `from`.
@@ -418,9 +426,20 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
     return hit ? destinations.find((d) => d.slug === hit.slug) : null;
   }, [europeanField, destinationCities]);
 
-  // Orașele MD oferite depind de țara destinație (PASAGERI): Anglia/Luxemburg = doar
-  // sud; Belgia/Olanda/Germania = nord + sud. Coletele NU se restricționează (null).
-  const mdPassCities = useMemo(() => mdCitiesFor(matchedCountry?.slug ?? null), [matchedCountry]);
+  // Orașele MD oferite PASAGERILOR depind de țara destinație (bifele din
+  // davo.md/admin → Orașe): ex. Anglia = doar sudul. Țara vine din orașul EU
+  // ales sau, dacă nu e ales încă un oraș, din țara selectată în picker; fără
+  // nicio țară → reuniunea orașelor oferite (fără cele „doar colete"), ca pe
+  // davo.md. Coletele NU se restricționează (null = toată Moldova).
+  const mdCountrySlug =
+    matchedCountry?.slug ??
+    findCountryByName(geo, direction === "md-to-eu" ? toCountryName : fromCountryName)?.slug ??
+    null;
+  const mdPassCities = useMemo(() => {
+    if (mode !== "bilet") return null;
+    if (mdCountrySlug && mdCountrySlug !== "moldova") return mdCitiesForSlug(geo, mdCountrySlug);
+    return mdStopsFor(geo, null);
+  }, [geo, mode, mdCountrySlug]);
 
   const flagCode = matchedCountry ? destinationSlugToCode[matchedCountry.slug] : undefined;
 
@@ -516,7 +535,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
     if (!embedded || mode !== "bilet" || !mdPassCities) return null;
     const bad = [customFrom, customTo]
       .filter((t) => t.trim())
-      .map((t) => offRouteMdCity(t, mdPassCities))
+      .map((t) => offRouteMdCity(geo, t, mdPassCities))
       .find(Boolean);
     return bad
       ? `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"}. Rezervarea se face oricum — dar ora și locul de îmbarcare le stabilești tu cu clientul.`
@@ -673,7 +692,7 @@ function RezervareContent({ embedded = false }: { embedded?: boolean }) {
       ];
       for (const text of pickedCities) {
         if (!text) continue;
-        const bad = offRouteMdCity(text, mdPassCities);
+        const bad = offRouteMdCity(geo, text, mdPassCities);
         if (bad) {
           setSubmitError(
             `„${bad}" nu e oprire pe cursa de ${matchedCountry?.name ?? "această țară"} — alege un oraș din listă${embedded ? " (sau scrie-l în „Adresă personalizată pe bilet”, la pasul Plată)" : ""}.`

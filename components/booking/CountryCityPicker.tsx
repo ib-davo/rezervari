@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo } from "react";
 import { ChevronDown } from "lucide-react";
-import { destinations, moldovanCities } from "@/lib/data";
-import { localizeCity, localizeDestinationName } from "@/lib/i18n/dataI18n";
+import { destinations } from "@/lib/data";
+import { localizeDestinationName } from "@/lib/i18n/dataI18n";
 import type { Locale } from "@/lib/i18n/config";
+import { useGeo } from "@/components/geo/GeoProvider";
+import { activeCities, localizeGeoCity } from "@/lib/geoShared";
 
 // Numele țărilor "străinătate" pe care DAVO le deservește. Folosit pentru
 // regula de simetrie: o cursă validă merge mereu Moldova ↔ străinătate. Dacă
@@ -49,30 +51,33 @@ type CountryOption = {
   cities: { name: string; label: string }[];
 };
 
+// Orașele vin din DB (davo.md/admin → Orașe) prin GeoProvider — aceeași sursă
+// ca site-ul public. Doar cele active, în ordinea configurată.
 function useCountries(locale: Locale, mdCities?: string[] | null): CountryOption[] {
+  const geo = useGeo();
   const mdKey = mdCities ? mdCities.join("|") : "";
   return useMemo(() => {
     // Lista de orașe MD: dacă e dată explicit (per țară destinație, pasageri), o
-    // folosim; altfel lista globală (colete / fallback). Chișinău e mereu hubul.
+    // folosim; altfel toate orașele MD active (colete / fallback).
     const mdNames = mdCities && mdCities.length
       ? mdCities
-      : ["Chișinău", ...moldovanCities.map((c) => c.name)];
+      : activeCities(geo.moldova).map((c) => c.name);
     const moldova: CountryOption = {
       name: "Moldova",
       label: locale === "ru" ? "Молдова" : "Moldova",
-      cities: mdNames.map((name) => ({ name, label: localizeCity(name, locale) })),
+      cities: mdNames.map((name) => ({ name, label: localizeGeoCity(geo, name, locale) })),
     };
-    const foreign: CountryOption[] = destinations.map((d) => ({
+    const foreign: CountryOption[] = geo.countries.map((d) => ({
       name: d.name,
       label: localizeDestinationName(d.slug, locale, d.name),
-      cities: d.cities.map((c) => ({
+      cities: activeCities(d).map((c) => ({
         name: c.name,
-        label: localizeCity(c.name, locale),
+        label: localizeGeoCity(geo, c.name, locale),
       })),
     }));
     return [moldova, ...foreign];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale, mdKey]);
+  }, [geo, locale, mdKey]);
 }
 
 // Parsează un string "Oraș, Țară" / "Țară" / "Oraș" / "" în (city, country).

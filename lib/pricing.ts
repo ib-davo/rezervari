@@ -1,4 +1,5 @@
 import { destinations, moldovanCities } from "./data";
+import { countryOfCityName, type GeoData } from "./geoShared";
 
 export interface PriceInput {
   departureCity: string;
@@ -10,6 +11,8 @@ export interface PriceInput {
   parcelWeight?: number | null;
   // Colet cu ridicare de la ADRESA expeditorului (nu predare la sediu) → minim 30.
   pickupFromAddress?: boolean;
+  /** Geografia din DB (davo.md/admin → Orașe) — fără ea cădem pe listele din lib/data.ts. */
+  geo?: GeoData | null;
 }
 
 export interface PriceResult {
@@ -21,8 +24,17 @@ function normalize(s: string) {
   return s.trim().toLowerCase();
 }
 
-function findCity(cityName: string) {
+function findCity(cityName: string, geo?: GeoData | null) {
   const name = normalize(cityName);
+  if (geo) {
+    // Orașele din DB: țara → datele comerciale (preț/monedă) din `destinations`.
+    const country = countryOfCityName(geo, cityName);
+    if (country?.slug === "moldova" || name === "chișinău" || name === "chisinau") {
+      return { fromMoldova: true as const, country: null };
+    }
+    const dest = country ? destinations.find((d) => d.slug === country.slug) ?? null : null;
+    if (dest) return { fromMoldova: false as const, country: dest };
+  }
   if (moldovanCities.some((c) => normalize(c.name) === name)) {
     return { fromMoldova: true as const, country: null };
   }
@@ -75,8 +87,8 @@ export function calculateParcelPrice(
 }
 
 export function calculatePrice(input: PriceInput): PriceResult {
-  const from = findCity(input.departureCity);
-  const to = findCity(input.arrivalCity);
+  const from = findCity(input.departureCity, input.geo);
+  const to = findCity(input.arrivalCity, input.geo);
 
   const foreign = !from.fromMoldova ? from.country : to.country;
 

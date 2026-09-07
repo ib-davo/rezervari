@@ -15,7 +15,9 @@ import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
 import { displayPassengerNames } from "@/lib/passengerNames";
 import { getSupabase } from "@/lib/supabaseClient";
-import { destinations, moldovanCities } from "@/lib/data";
+import { destinations } from "@/lib/data";
+import { useGeo } from "@/components/geo/GeoProvider";
+import { allCountries, type GeoData } from "@/lib/geoShared";
 import { TripPicker } from "@/components/booking/TripPicker";
 
 export type OperatorBooking = {
@@ -87,13 +89,15 @@ function cityKey(raw: string): string {
 
 // Oraș cunoscut → țara lui (orașele EU din ofertă + toate localitățile MD).
 // Folosit ca etichetele curselor să arate ȚĂRI, nu adrese sau coduri poștale.
-const cityCountry: Map<string, string> = (() => {
+// Construit din geografia DB (davo.md/admin → Orașe), inclusiv orașele ascunse
+// — rezervările vechi le mai au.
+type CityCountryLookup = Map<string, string>;
+function buildCityCountry(geo: GeoData): CityCountryLookup {
   const m = new Map<string, string>();
-  for (const d of destinations) for (const c of d.cities) m.set(normTxt(c.name), d.name);
-  for (const c of moldovanCities) m.set(normTxt(c.name), "Moldova");
+  for (const country of allCountries(geo)) for (const c of country.cities) m.set(normTxt(c.name), country.name);
   m.set("chisinau", "Moldova");
   return m;
-})();
+}
 const countryNames = new Set(["moldova", ...destinations.map((d) => normTxt(d.name))]);
 
 type CityOption = { value: string; label: string; count: number };
@@ -135,7 +139,11 @@ function tripKeyOf(b: OperatorBooking): string {
 /** Destinațiile grupului ca ȚĂRI („Anglia, Belgia"): orașele cunoscute se
  *  mapează la țară, „Oraș, Țară" ia țara din coadă, iar adresele libere și
  *  codurile poștale („8860", „BN14 8EN") nu intră deloc în etichetă. */
-function destSummary(items: OperatorBooking[], pick: (b: OperatorBooking) => string = (b) => b.arrivalCity): string {
+function destSummary(
+  items: OperatorBooking[],
+  cityCountry: CityCountryLookup,
+  pick: (b: OperatorBooking) => string = (b) => b.arrivalCity
+): string {
   const seen = new Map<string, string>();
   for (const b of items) {
     const raw = pick(b) || "";
@@ -157,15 +165,15 @@ function destSummary(items: OperatorBooking[], pick: (b: OperatorBooking) => str
  *  construite din buildTripGroups (TripsView); aici cursa s-a încheiat, deci o
  *  reconstruim din rezervările afișate (zi + autocar) — fix același set pe care
  *  îl descarcă și Excelul de arhivă (/api/operator/manifest?day&coach). */
-function openArchivePdf(day: string, coach: string, items: OperatorBooking[]) {
+function openArchivePdf(day: string, coach: string, items: OperatorBooking[], cityCountry: CityCountryLookup) {
   const g: TripGroup = {
     kind: "trip",
     key: `${day}|${coach}`,
     busId: null,
     busLabel: coach === NO_COACH ? null : coach,
     busPlate: null,
-    from: destSummary(items, (b) => b.departureCity) || "—",
-    to: destSummary(items) || "—",
+    from: destSummary(items, cityCountry, (b) => b.departureCity) || "—",
+    to: destSummary(items, cityCountry) || "—",
     departureAt: items.reduce((min, b) => (b.departureDate < min ? b.departureDate : min), items[0].departureDate),
     arrivalAt: null,
     capacity: null,
@@ -203,6 +211,8 @@ const selectCls =
   "max-w-[13rem] truncate rounded-full border border-[color:var(--ink-200)] bg-white px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] focus:border-[color:var(--navy-500)] focus:outline-none";
 
 export default function BookingsView({ scope }: { scope: "active" | "archived" }) {
+  const geo = useGeo();
+  const cityCountry = useMemo(() => buildCityCountry(geo), [geo]);
   const [bookings, setBookings] = useState<OperatorBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -408,7 +418,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
     }
     const opts = [...byTrip.entries()].map(([value, items]) => {
       const [day, coach] = value.split("|");
-      const dest = destSummary(items);
+      const dest = destSummary(items, cityCountry);
       return {
         value,
         label: `${tripDayLabel(day)} · ${coach}${dest ? ` · ${dest}` : ""}`,
@@ -740,7 +750,7 @@ export default function BookingsView({ scope }: { scope: "active" | "archived" }
                               <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
                             </a>
                             <button
-                              onClick={() => openArchivePdf(key, coach, items)}
+                              onClick={() => openArchivePdf(key, coach, items, cityCountry)}
                               className="inline-flex items-center gap-1 rounded-full border border-[color:var(--ink-200)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform"
                             >
                               <Printer className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> PDF

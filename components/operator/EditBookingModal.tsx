@@ -6,7 +6,8 @@ import type { OperatorBooking } from "./BookingsView";
 import { BusSeatMap } from "@/components/booking/BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
 import type { ActResult } from "@/lib/operatorAct";
-import { destinations, mdCitiesFor, offRouteMdCity } from "@/lib/data";
+import { useGeo } from "@/components/geo/GeoProvider";
+import { countryOfCityName, findCountryByName, mdCitiesForSlug, offRouteMdCity } from "@/lib/geoShared";
 
 // Datele de locuri pe un segment (răspunsul /bookings/[id]/seats). Ocuparea e
 // circuit-aware (vezi lib/operatorSeats) — identică cu harta din panou.
@@ -35,6 +36,7 @@ export function EditBookingModal({
   onClose: () => void;
   onSubmit: (patch: Record<string, unknown>) => Promise<ActResult>;
 }) {
+  const geo = useGeo();
   const initialPassengers = useMemo(() => {
     const firsts = b.firstName.split(",").map((s) => s.trim());
     const lasts = b.lastName.split(",").map((s) => s.trim());
@@ -132,23 +134,22 @@ export function EditBookingModal({
     if (!isPassenger) return null;
     const resolveCountrySlug = (): string | null => {
       for (const v of [arrCity, depCity]) {
-        const tail = v.includes(",") ? v.slice(v.lastIndexOf(",") + 1).trim().toLowerCase() : null;
-        const byTail = destinations.find((d) => d.name.toLowerCase() === tail);
-        if (byTail) return byTail.slug;
-        const head = v.split(",")[0].trim().toLowerCase();
-        const byCity = destinations.find((d) => d.cities.some((c) => c.name.toLowerCase() === head));
-        if (byCity) return byCity.slug;
+        const tail = v.includes(",") ? v.slice(v.lastIndexOf(",") + 1).trim() : null;
+        const byTail = findCountryByName(geo, tail);
+        if (byTail && byTail.slug !== "moldova") return byTail.slug;
+        const byCity = countryOfCityName(geo, v.split(",")[0]);
+        if (byCity && byCity.slug !== "moldova") return byCity.slug;
       }
       return null;
     };
-    const allowed = mdCitiesFor(resolveCountrySlug());
+    const allowed = mdCitiesForSlug(geo, resolveCountrySlug());
     if (!allowed) return null;
     for (const [next, prev] of [
       [depCity, b.departureCity],
       [arrCity, b.arrivalCity],
     ]) {
       if (next.trim() === prev.trim()) continue;
-      const bad = offRouteMdCity(next, allowed);
+      const bad = offRouteMdCity(geo, next, allowed);
       if (bad) {
         return `„${bad}" nu e oprire pe traseul acestei curse. Se salvează așa cum ai scris — ora și locul de îmbarcare le stabilești tu cu clientul.`;
       }

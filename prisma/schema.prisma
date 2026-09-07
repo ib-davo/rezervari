@@ -41,6 +41,16 @@ model City {
   countryId String
   country   Country  @relation(fields: [countryId], references: [id])
 
+  // ===== Configurare din davo.md/admin → Orașe (repo-ul davo; migrația
+  // 20260907000000_city_config). Oglindite aici fiindcă baza e partajată —
+  // fără ele un `prisma db push` de aici ar șterge coloanele. Citite prin
+  // lib/geo.ts (picker-e, ora de pe bilet, validarea opririlor).
+  nameRu             String?
+  sortOrder          Int      @default(0)
+  active             Boolean  @default(true)
+  pickupOffsetMin    Int?
+  passengerCountries String[] @default([])
+
   originRoutes      Route[] @relation("RouteOrigin")
   destinationRoutes Route[] @relation("RouteDestination")
 
@@ -48,6 +58,7 @@ model City {
 
   @@index([countryId])
   @@index([isOrigin])
+  @@index([active])
 }
 
 // ===== Operațiuni =====

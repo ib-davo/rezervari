@@ -10,16 +10,21 @@ const MAX_LIMIT = 100;
 
 /**
  * Cache la nivel de modul cu toate ID-urile orașelor moldovenești + Chișinău.
- * Setul nu se schimbă în runtime; îl populăm o singură dată pe instanța de
- * funcție și apoi alias-ul devine sincron, fără round-trip la DB.
+ * Se reîmprospătează la un minut — orașele MD se adaugă acum din davo.md/admin
+ * → Orașe, iar un oraș nou trebuie alias-at la Chișinău fără redeploy.
  */
+const MOLDOVA_CACHE_TTL_MS = 60 * 1000;
 let moldovaCachePromise: Promise<{
   ids: Set<string>;
   chisinauId: string | null;
 }> | null = null;
+let moldovaCacheAt = 0;
 
 function ensureMoldovaCache() {
-  if (moldovaCachePromise) return moldovaCachePromise;
+  if (moldovaCachePromise && Date.now() - moldovaCacheAt < MOLDOVA_CACHE_TTL_MS) {
+    return moldovaCachePromise;
+  }
+  moldovaCacheAt = Date.now();
   moldovaCachePromise = prisma.city
     .findMany({
       where: { country: { slug: "moldova" } },

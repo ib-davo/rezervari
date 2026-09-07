@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import { mdStopOffset } from "@/lib/data";
+import { getGeoSafe } from "@/lib/geo";
+import { mdStopOffsetMin } from "@/lib/geoShared";
 
 // Programul fiecărei țări (admin → "Țări") păstrează ora plecării ca string
 // literal "HH:mm" în ora Moldovei (vezi schema Country.outboundTime). Vrem ca
@@ -20,10 +21,10 @@ function extractCity(v: string): string {
 }
 
 // Ora plecării la Chișinău (hub) e cea din program; orașele MD de pe traseu
-// (Cahul, Comrat, Bălți...) au ora decalată cu offset-ul lor. Aici aplicăm
-// offset-ul pe string-ul "HH:mm" — plecarea DIN orașul MD e mereu + offset
-// (orașul e deservit după Chișinău pe traseu, deci mai târziu; nordul are
-// offset negativ = mai devreme). Wrap peste 24h tratat pentru siguranță.
+// (Cahul, Comrat, Bălți...) au ora decalată cu offset-ul lor — `pickupOffsetMin`
+// din DB (davo.md/admin → Orașe), același pe care îl arată „Orar ridicări".
+// Aici aplicăm offset-ul pe string-ul "HH:mm"; plecarea DIN orașul MD e
+// + offset față de Chișinău. Wrap peste 24h tratat pentru siguranță.
 function shiftHHmm(hhmm: string, deltaMin: number): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m || deltaMin === 0) return hhmm;
@@ -50,6 +51,7 @@ export async function resolveScheduledTimes(booking: {
   const depCountry = extractCountry(booking.departureCity);
   const arrCountry = extractCountry(booking.arrivalCity);
   const hasReturn = !!booking.returnDate;
+  const geo = await getGeoSafe();
 
   const result: ScheduledTimes = {};
 
@@ -59,7 +61,7 @@ export async function resolveScheduledTimes(booking: {
   if (depCountry === "Moldova" && arrCountry && arrCountry !== "Moldova") {
     const c = await prisma.country.findUnique({ where: { name: arrCountry } });
     if (c?.outboundTime) {
-      result.departureTime = shiftHHmm(c.outboundTime, mdStopOffset(arrCountry, extractCity(booking.departureCity)));
+      result.departureTime = shiftHHmm(c.outboundTime, mdStopOffsetMin(geo, extractCity(booking.departureCity)));
     }
     if (hasReturn && c?.returnTime) result.returnTime = c.returnTime;
     return result;
@@ -72,7 +74,7 @@ export async function resolveScheduledTimes(booking: {
     const c = await prisma.country.findUnique({ where: { name: depCountry } });
     if (c?.returnTime) result.departureTime = c.returnTime;
     if (hasReturn && c?.outboundTime) {
-      result.returnTime = shiftHHmm(c.outboundTime, mdStopOffset(depCountry, extractCity(booking.arrivalCity)));
+      result.returnTime = shiftHHmm(c.outboundTime, mdStopOffsetMin(geo, extractCity(booking.arrivalCity)));
     }
     return result;
   }

@@ -16,7 +16,9 @@ import {
 import PageHeader from "@/components/admin/PageHeader";
 import Badge from "@/components/admin/Badge";
 import { statusMeta } from "@/lib/adminLabels";
-import { destinations, moldovanCities } from "@/lib/data";
+import { destinations } from "@/lib/data";
+import { useGeo } from "@/components/geo/GeoProvider";
+import { activeCities, allCountries, type GeoData } from "@/lib/geoShared";
 import { BusSeatMap } from "@/components/booking/BusSeatMap";
 import type { BusLayout } from "@/lib/adminMock";
 import { displayPassengerNames } from "@/lib/passengerNames";
@@ -54,43 +56,44 @@ const statusOptions = [
   { value: "completed", label: "Finalizată" },
 ];
 
-// Lookup oraș → țară. Pornim de la `destinations` (orașele străine) și adăugăm
-// Moldova pentru toate orașele moldovene + Chișinău (default origin). Cheile
-// sunt normalizate (lowercase + diacritice scoase) pentru a tolera variații.
+// Lookup oraș → țară, din geografia DB (davo.md/admin → Orașe): orașele străine +
+// toate localitățile MD (și cele dezactivate — rezervările vechi le mai au) +
+// Chișinău. Cheile sunt normalizate (lowercase + diacritice scoase).
 function normalize(s: string): string {
   return s
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim();
 }
 
-const cityToCountry: Map<string, string> = (() => {
+function buildCityToCountry(geo: GeoData): Map<string, string> {
   const m = new Map<string, string>();
-  for (const d of destinations) {
-    for (const c of d.cities) m.set(normalize(c.name), d.name);
+  for (const country of allCountries(geo)) {
+    for (const c of country.cities) m.set(normalize(c.name), country.name);
   }
-  for (const c of moldovanCities) m.set(normalize(c.name), "Moldova");
   m.set(normalize("Chișinău"), "Moldova");
   m.set(normalize("Chisinau"), "Moldova");
   return m;
-})();
+}
 
 const COUNTRY_OPTIONS = ["Moldova", ...destinations.map((d) => d.name)];
 
 // Pentru flow-ul colet-la-cheie arrivalCity e formatată ca "Oraș, Țară" —
 // extragem partea după ultima virgulă dacă pică în lista cunoscută.
-function countryOf(city: string): string | null {
-  const direct = cityToCountry.get(normalize(city));
-  if (direct) return direct;
-  const idx = city.lastIndexOf(",");
-  if (idx >= 0) {
-    const tail = city.slice(idx + 1).trim();
-    if (COUNTRY_OPTIONS.some((c) => normalize(c) === normalize(tail))) return tail;
-    const lookup = cityToCountry.get(normalize(tail));
-    if (lookup) return lookup;
-  }
-  return null;
+function makeCountryOf(cityToCountry: Map<string, string>) {
+  return function countryOf(city: string): string | null {
+    const direct = cityToCountry.get(normalize(city));
+    if (direct) return direct;
+    const idx = city.lastIndexOf(",");
+    if (idx >= 0) {
+      const tail = city.slice(idx + 1).trim();
+      if (COUNTRY_OPTIONS.some((c) => normalize(c) === normalize(tail))) return tail;
+      const lookup = cityToCountry.get(normalize(tail));
+      if (lookup) return lookup;
+    }
+    return null;
+  };
 }
 
 type PeriodFilter = "all" | "today" | "this_week" | "next_week" | "this_month";
@@ -140,6 +143,8 @@ function periodRange(p: PeriodFilter, now: Date): { start: Date; end: Date } | n
 }
 
 export default function BookingsPage() {
+  const geo = useGeo();
+  const countryOf = useMemo(() => makeCountryOf(buildCityToCountry(geo)), [geo]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1183,14 +1188,12 @@ function CityDropdown({
   placeholder?: string;
   required?: boolean;
 }) {
+  const geo = useGeo();
   const cities = useMemo(() => {
     if (!country) return [] as string[];
-    if (country === "Moldova") {
-      return ["Chișinău", ...moldovanCities.map((c) => c.name)];
-    }
-    const dest = destinations.find((d) => d.name === country);
-    return dest ? dest.cities.map((c) => c.name) : [];
-  }, [country]);
+    const hit = allCountries(geo).find((c) => c.name === country);
+    return hit ? activeCities(hit).map((c) => c.name) : [];
+  }, [geo, country]);
 
   const isCustom = value !== "" && !cities.includes(value);
   const [usingCustom, setUsingCustom] = useState(isCustom);

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { sendBookingConfirmation, sendAdminNotification, BookingConfirmationData } from '@/lib/email'
 import { calculatePrice, calculatePriceFromRoute, calculateParcelPrice, seatSurcharge } from '@/lib/pricing'
+import { getGeoSafe } from '@/lib/geo'
 import { occupiedSeatsForRun } from '@/lib/runSeats'
 import { autoLinkTripAndClient } from '@/lib/bookingLink'
 import { enqueueRemindersOnly } from '@/lib/emailQueue'
@@ -235,6 +236,9 @@ export async function POST(request: NextRequest) {
 
     let price: number
     let currency: string
+    // Orașele din DB (davo.md/admin → Orașe) — un oraș adăugat recent e tarifat
+    // pe țara lui, nu pe fallback-ul implicit.
+    const geo = await getGeoSafe()
     if (body.type === 'parcel') {
       // Colet: preț pe greutate (1.5/kg), NU tarif de pasager — chiar dacă are
       // cursă atașată. Valuta vine din ruta cursei când există (GBP pe Anglia).
@@ -246,6 +250,7 @@ export async function POST(request: NextRequest) {
             type: 'parcel',
             parcelWeight: Number(body.parcelWeight) || null,
             pickupFromAddress: !!body.pickupFromAddress,
+            geo,
           })
       price = res.price
       currency = res.currency
@@ -270,6 +275,7 @@ export async function POST(request: NextRequest) {
         adults: body.adults,
         children: body.children,
         parcelWeight: body.parcelWeight,
+        geo,
       })
       price = res.price
       currency = res.currency
