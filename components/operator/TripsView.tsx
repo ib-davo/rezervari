@@ -6,11 +6,12 @@ import {
   ArrowRight, Phone, Users, Package, User, Check, X, Armchair,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown, ChevronLeft, ChevronRight,
   AlertTriangle, CalendarDays, Loader2, Bus, Plus, FileSpreadsheet, Printer, Mail, Ticket, Pencil, LayoutGrid,
-  MapPin, Flag,
+  MapPin, Flag, ArrowLeftRight,
 } from "lucide-react";
 import { getSupabase } from "@/lib/supabaseClient";
 import type { OperatorBooking } from "@/components/operator/BookingsView";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { ReturnBookingModal } from "@/components/operator/ReturnBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
 import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
@@ -843,7 +844,7 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
           {/* Pasageri ACTIVI (anulatele NU apar aici) */}
           <div className="divide-y divide-[color:var(--ink-100)]">
             {visible.map((b) => (
-              <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} />
+              <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} onReload={onReload} />
             ))}
             {cityFilterOn && visible.length === 0 && (
               <div className="px-3 py-6 text-center text-xs font-semibold text-[color:var(--ink-400)]">
@@ -866,7 +867,7 @@ function TripCard({ g, onAct, showDay, buses, isSup, onReload, nowTs }: {
               {showCancelled && (
                 <div className="divide-y divide-[color:var(--ink-100)]">
                   {cancelledList.map((b) => (
-                    <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} />
+                    <BookingRow key={b.id} b={b} seats={seatsFor(b, g)} showRoute={showRouteFor(b)} canAssign={canAssignFor(b)} buses={buses} onAct={onAct} onReload={onReload} />
                   ))}
                 </div>
               )}
@@ -939,13 +940,14 @@ function MoveBus({ g, buses, onDone }: { g: TripGroup; buses: BusOption[]; onDon
   );
 }
 
-function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
+function BookingRow({ b, seats, showRoute, canAssign, buses, onAct, onReload }: {
   b: OperatorBooking;
   seats: number[];
   showRoute: boolean;
   canAssign: boolean;
   buses: BusOption[];
   onAct: (id: string, patch: Record<string, unknown>) => Promise<ActResult>;
+  onReload: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -955,7 +957,10 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
   // fără avertisment, operatorul ar crede că „a dezanulat" și locul s-a întors.
   const [confirmRestore, setConfirmRestore] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  // „Bilet retur": rezervare nouă pe sensul invers, cu datele clientului copiate.
+  const [returnOpen, setReturnOpen] = useState(false);
   const cancelled = b.status === "cancelled";
+  const canReturn = b.type !== "parcel" && !cancelled && b.tripType !== "round-trip";
   const state = stateOf(b);
   // Data rezervării ≠ ziua cursei legate — anomalie rară scrisă din afara panoului.
   const mismatch = tripDayMismatch(b as BookingWithTripDay);
@@ -1071,6 +1076,11 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
             className="inline-flex max-w-full items-center gap-1 rounded-full border border-[color:var(--ink-200)] px-3 py-1.5 text-xs font-semibold text-[color:var(--navy-900)] active:scale-95 transition-transform">
             <Mail className="h-3.5 w-3.5 shrink-0 text-[color:var(--ink-400)]" /> <span className="truncate">{b.email}</span>
           </a>
+          {canReturn && (
+            <RowBtn onClick={() => setReturnOpen(true)} className="bg-[color:var(--navy-900)] text-white">
+              <ArrowLeftRight className="h-3.5 w-3.5" /> Bilet retur
+            </RowBtn>
+          )}
           {!cancelled && (
             <RowBtn onClick={() => setEditOpen(true)} className="border border-[color:var(--navy-200,rgba(20,58,122,0.2))] bg-[color:var(--navy-50)] text-[color:var(--navy-900)]">
               <Pencil className="h-3.5 w-3.5 text-[color:var(--red-500)]" /> Editează
@@ -1159,6 +1169,9 @@ function BookingRow({ b, seats, showRoute, canAssign, buses, onAct }: {
 
       {editOpen && (
         <EditBookingModal b={b} onClose={() => setEditOpen(false)} onSubmit={(patch) => onAct(b.id, patch)} />
+      )}
+      {returnOpen && (
+        <ReturnBookingModal b={b} onClose={() => setReturnOpen(false)} onReload={onReload} />
       )}
     </div>
   );

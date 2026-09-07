@@ -5,11 +5,12 @@ import {
   ArrowRight, Phone, Users, Package, User, Check, X,
   Archive, RefreshCw, Search, Wifi, WifiOff, ChevronDown,
   AlertTriangle, CalendarDays, Loader2, Armchair, Mail, Ticket, Pencil, Bus, MapPin, Flag,
-  FileSpreadsheet, Printer,
+  FileSpreadsheet, Printer, ArrowLeftRight,
 } from "lucide-react";
 import { buildManifestHtml, type TripGroup } from "@/lib/tripManifest";
 import { ARCHIVE_EDIT_MS } from "@/lib/activeWindow";
 import { EditBookingModal } from "@/components/operator/EditBookingModal";
+import { ReturnBookingModal } from "@/components/operator/ReturnBookingModal";
 import { ActError, type ActResult } from "@/lib/operatorAct";
 import { ActionToast } from "@/components/operator/ActionToast";
 import { StatusSelect, stateOf, statePatch } from "@/components/operator/StatusSelect";
@@ -829,6 +830,8 @@ function BookingCard({
 }) {
   const [rescheduling, setRescheduling] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  // „Bilet retur": rezervare nouă pe sensul invers, cu datele clientului copiate.
+  const [returnOpen, setReturnOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -838,6 +841,9 @@ function BookingCard({
   const dep = new Date(b.departureDate);
   const ret = b.returnDate ? new Date(b.returnDate) : null;
   const cancelled = b.status === "cancelled";
+  // Pasager pe un singur sens, neanulat → poate primi „Bilet retur" (și din
+  // arhivă: cel mai des returul se face după ce cursa dus a trecut).
+  const canReturn = b.type !== "parcel" && !cancelled && b.tripType !== "round-trip";
   const state = stateOf(b);
   // Fereastra de CORECTURĂ din Arhivă: încă ARCHIVE_EDIT_DAYS zile după ultima
   // etapă a cursei, operatorul poate marca ce a uitat în timpul cursei („Achitat",
@@ -973,6 +979,11 @@ function BookingCard({
       )}
       {open && (
         <div className="mt-2 flex flex-wrap gap-1.5">
+          {canReturn && (
+            <ActionBtn onClick={() => setReturnOpen(true)} className="bg-[color:var(--navy-900)] text-white">
+              <ArrowLeftRight className="h-3.5 w-3.5" /> Bilet retur
+            </ActionBtn>
+          )}
           {scope === "active" && b.status !== "confirmed" && (
             cancelled ? (
               // „Dezanularea" nu întoarce locurile (au fost șterse la anulare și
@@ -1064,6 +1075,7 @@ function BookingCard({
         </div>
       )}
       {rescheduling && <RescheduleModal b={b} onClose={() => setRescheduling(false)} onReload={onReload} />}
+      {returnOpen && <ReturnBookingModal b={b} onClose={() => setReturnOpen(false)} onReload={onReload} />}
       {editOpen && (
         <EditBookingModal
           b={b}
@@ -1096,7 +1108,11 @@ function RescheduleModal({ b, onClose, onReload }: { b: OperatorBooking; onClose
       .then((r) => r.json())
       .then((d) => {
         const idx: Record<string, string> = {};
-        for (const c of d.cities || []) idx[String(c.name).toLowerCase()] = c.id;
+        // Endpointul întoarce `origins` + `destinations` (nu `cities`) — fără
+        // asta indexul rămânea gol și modalul zicea mereu că nu găsește orașele.
+        for (const c of [...(d?.origins ?? []), ...(d?.destinations ?? [])]) {
+          idx[String(c.name).trim().toLowerCase()] = String(c.id);
+        }
         setCities(idx);
       })
       .catch(() => {});
