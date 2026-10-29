@@ -46,7 +46,7 @@ export function isCountryActive(c: CountrySchedule): boolean {
 
 /**
  * Pentru un weekday + ora "HH:mm" în Europe/Chisinau, calculează data UTC
- * a primei apariții ≥ `from`. Apoi se pot adăuga 7*N zile pt următoarele.
+ * a primei apariții ≥ `from`. Următoarele NU se obțin adunând 7×24 h (vezi nextDepartures).
  */
 function nextOccurrence(weekday: number, hhmm: string, from: Date): Date {
   const [hh, mm] = hhmm.split(":").map(Number);
@@ -77,9 +77,14 @@ export function nextDepartures(
   from: Date = new Date()
 ): Date[] {
   const first = nextOccurrence(weekday, time, from);
+  // Fiecare săptămână = aceeași zi și oră la Chișinău, convertită cu offset-ul ZILEI ei.
+  // Adunând 7×24 h la prima plecare, o oră de vară (07:00 = 04:00 UTC) rămânea 04:00 UTC
+  // și după trecerea la ora de iarnă, adică 06:00 — cursele de după 25.10.2026.
+  const [hh, mm] = time.split(":").map(Number);
+  const day = parseLocalParts(first);
   const out: Date[] = [];
   for (let i = 0; i < count; i++) {
-    out.push(new Date(first.getTime() + i * 7 * 24 * 3600 * 1000));
+    out.push(makeUtcFromLocal(day.year, day.month, day.day + 7 * i, hh, mm));
   }
   return out;
 }
